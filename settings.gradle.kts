@@ -16,6 +16,11 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "qtquickview_kotlin"
+rootProject.name = "qshare"
 include(":app")
 
+includeBuild("/home/a/cpp/simpleble/simpleble/src/backends/android/bridge") {
+    dependencySubstitution {
+        substitute(module("org.simpleble.android.bridge:simpleble-bridge")).using(project(":"))
+    }
+}

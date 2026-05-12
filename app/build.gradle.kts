@@ -5,13 +5,13 @@ plugins {
 }
 
 android {
-    namespace = "com.example.qtquickview_kotlin"
+    namespace = "com.example.qshare"
     compileSdk = 37
     ndkVersion = "28.2.13676358"
 
 
     defaultConfig {
-        applicationId = "com.example.qtquickview_kotlin"
+        applicationId = "com.example.qshare"
         minSdk = 28
         //noinspection EditedTargetSdkVersion
         targetSdk = 37

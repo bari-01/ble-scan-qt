@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
 cmake_minimum_required(VERSION 3.16)
 
-project(qtquickview_kotlin VERSION 0.1 LANGUAGES CXX)
+project(Qshare VERSION 0.1 LANGUAGES CXX)
 
 install(DIRECTORY
     gradle

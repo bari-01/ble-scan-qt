@@ -10,7 +10,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.qtquickview_kotlin"
+        android:theme="@style/Theme.qshare"
         tools:targetApi="34">
         <activity
             android:name=".MainActivity"

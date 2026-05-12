@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">QtQuickView Android Kotlin Example</string>
+    <string name="app_name">Qshare</string>
     <string name="button">Change \n color</string>
     <string name="kotlin">Kotlin</string>
     <string name="change_qml_background">Change QML color</string>
