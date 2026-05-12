@@ -1,15 +1,10 @@
 #include "BluetoothManager.h"
 
-BluetoothManager::BluetoothManager(QObject *parent)
-        : QObject(parent)
+BluetoothManager::BluetoothManager(QObject *parent) : QObject(parent)
 {
-    m_discoveryAgent =
-            new QBluetoothDeviceDiscoveryAgent(this);
+    m_discoveryAgent = new QBluetoothDeviceDiscoveryAgent(this);
 
-    connect(
-            m_discoveryAgent,
-            &QBluetoothDeviceDiscoveryAgent::deviceDiscovered,
-            this,
+    connect(m_discoveryAgent, &QBluetoothDeviceDiscoveryAgent::deviceDiscovered, this,
             [this](const QBluetoothDeviceInfo &device)
             {
                 if (!(device.coreConfigurations() &
@@ -32,28 +27,25 @@ BluetoothManager::BluetoothManager(QObject *parent)
                     name = "Unknown";
 
                 emit deviceFound(name, address);
-            });
+            }
+    );
 
-    connect(
-            m_discoveryAgent,
-            &QBluetoothDeviceDiscoveryAgent::errorOccurred,
-            this,
+    connect(m_discoveryAgent,&QBluetoothDeviceDiscoveryAgent::errorOccurred, this,
             [this](QBluetoothDeviceDiscoveryAgent::Error error)
             {
                 emit logMessage(
                         QString("Scan error: %1")
                                 .arg(error)
                 );
-            });
+            }
+    );
 
-    connect(
-            m_discoveryAgent,
-            &QBluetoothDeviceDiscoveryAgent::finished,
-            this,
-            [this]()
+    connect(m_discoveryAgent, &QBluetoothDeviceDiscoveryAgent::finished, this,
+            [this]() -> void
             {
                 emit logMessage("Scan finished");
-            });
+            }
+    );
 }
 
 void BluetoothManager::startScan()
@@ -63,36 +55,44 @@ void BluetoothManager::startScan()
 
     emit logMessage("Starting BLE scan...");
 
-    m_discoveryAgent->start(
-            QBluetoothDeviceDiscoveryAgent::LowEnergyMethod
-    );
+    m_discoveryAgent->start( QBluetoothDeviceDiscoveryAgent::LowEnergyMethod );
 }
 
 void BluetoothManager::connectToDevice(const QString &address)
 {
-    if (!m_deviceMap.contains(address))
-        return;
+    if (!m_deviceMap.contains(address)) return;
 
     auto device = m_deviceMap[address];
 
     emit logMessage("Connecting...");
 
-    auto *controller =
-            QLowEnergyController::createCentral(device, this);
+    auto *controller = QLowEnergyController::createCentral(device, this);
 
-    connect(controller, &QLowEnergyController::connected, this, [=]() {
-        emit logMessage("Connected. Discovering services...");
-        controller->discoverServices();
-    });
+    connect(controller, &QLowEnergyController::connected, this,
+            [=]()
+            {
+                emit logMessage("Connected. Discovering services...");
+                controller->discoverServices();
+            }
+    );
 
-    connect(controller, &QLowEnergyController::serviceDiscovered,
-            this, [=](const QBluetoothUuid &uuid) {
-                emit logMessage("Service: " + uuid.toString());
-            });
+    connect(controller, &QLowEnergyController::serviceDiscovered, this,
+            [=](const QBluetoothUuid &uuid)
+            { emit logMessage("Service: " + uuid.toString()); }
+    );
 
-    connect(controller, &QLowEnergyController::disconnected, this, [=]() {
-        emit logMessage("Disconnected");
-    });
+    connect(controller, QOverload<QLowEnergyController::Error>::of(&QLowEnergyController::error), this,
+            [this, controller](QLowEnergyController::Error error)
+            {
+                emit logMessage("Controller Error: " + QString::number(error));
+                controller->deleteLater();
+            }
+    );
+
+    connect(controller, &QLowEnergyController::disconnected, this,
+            [=]()
+            { emit logMessage("Disconnected"); }
+    );
 
     controller->connectToDevice();
 }
