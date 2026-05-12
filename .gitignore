@@ -1,0 +1,34 @@
+# Built artifacts
+bin/
+gen/
+out/
+build/
+.gradle/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+*.iws
+.navigation/
+captures/
+externalNativeBuild/
+.cxx/
+*.apk
+*.aar
+*.ap_
+*.dex
+
+# Local configuration
+local.properties
+
+# Log files
+*.log
+
+# Qt specific (if applicable)
+*.qmlc
+*.jsc
+*.pro.user
+
+# OS specific
+.DS_Store
+Thumbs.db
