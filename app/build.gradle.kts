@@ -5,13 +5,13 @@ plugins {
 }
 
 android {
-    namespace = "com.example.qshare"
+    namespace = "io.bari.qshare"
     compileSdk = 37
     ndkVersion = "28.2.13676358"
 
 
     defaultConfig {
-        applicationId = "com.example.qshare"
+        applicationId = "io.bari.qshare"
         minSdk = 28
         //noinspection EditedTargetSdkVersion
         targetSdk = 37

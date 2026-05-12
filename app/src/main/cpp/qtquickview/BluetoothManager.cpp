@@ -81,13 +81,13 @@ void BluetoothManager::connectToDevice(const QString &address)
             { emit logMessage("Service: " + uuid.toString()); }
     );
 
-    connect(controller, QOverload<QLowEnergyController::Error>::of(&QLowEnergyController::error), this,
-            [this, controller](QLowEnergyController::Error error)
-            {
-                emit logMessage("Controller Error: " + QString::number(error));
-                controller->deleteLater();
-            }
-    );
+    //connect(controller, QOverload<QLowEnergyController::Error>::of(&QLowEnergyController::error), this,
+    //        [this, controller](QLowEnergyController::Error error)
+    //        {
+    //            emit logMessage("Controller Error: " + QString::number(error));
+    //            controller->deleteLater();
+    //        }
+    //);
 
     connect(controller, &QLowEnergyController::disconnected, this,
             [=]()

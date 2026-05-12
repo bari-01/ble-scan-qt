@@ -1,11 +1,11 @@
-package com.example.qshare
+package io.bari.qshare
 
 import android.os.Bundle
 import android.util.Log
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
-import com.example.qshare.databinding.ActivityMainBinding
+import io.bari.qshare.databinding.ActivityMainBinding
 import org.qtproject.example.qtquickview.QmlModule.Main
 import org.qtproject.qt.android.QtQmlStatus
 import org.qtproject.qt.android.QtQmlStatusChangeListener
