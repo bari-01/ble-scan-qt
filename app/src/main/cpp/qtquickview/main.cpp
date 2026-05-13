@@ -28,6 +28,7 @@ int main(int argc, char *argv[])
                               if (p.status() == Qt::PermissionStatus::Granted)
                                   qDebug() << "Bluetooth permission granted";
                           });
+    //engine.rootContext()->setContextProperty("Transport", transportManager);
 
     return app.exec();
 }
