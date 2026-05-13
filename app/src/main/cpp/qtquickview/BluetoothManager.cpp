@@ -212,6 +212,9 @@ void BluetoothManager::onCharacteristicWritten(
 
 void BluetoothManager::electHost(uint32_t remoteNonce, QLowEnergyService *remoteSvc)
 {
+    emit logMessage(QString("electHost called: local=%1 remote=%2")//done=%3")
+        .arg(m_localNonce).arg(remoteNonce));//.arg(m_electionDone));
+
     if (remoteSvc) m_remoteSvc = remoteSvc; // cache it for onCharacteristicWritten
 
     if (m_localNonce == remoteNonce) {
@@ -230,126 +233,79 @@ void BluetoothManager::electHost(uint32_t remoteNonce, QLowEnergyService *remote
     emit logMessage(m_isHost ? "I am HOST → will create hotspot"
             : "I am CLIENT → will connect to hotspot");
 
-
     if (m_isHost) {
         auto *bridge = new HotspotBridge(this);
+        connect(bridge, &HotspotBridge::hotspotStarted, this,
+                [=](QString ssid, QString psk, QString ip) {
+                    if (!m_transport) {
+                        // Write "READY" to BLE — client just needs to know
+                        // the host's group is up and which port to use
+                        QString payload = "READY::45678";
+                        auto ch = m_negotiationService->characteristic(HOTSPOT_CHAR_UUID);
+                        m_negotiationService->writeCharacteristic(ch, payload.toUtf8());
+                        emit logMessage("P2P group up: " + ssid);
 
-    connect(bridge, &HotspotBridge::hotspotStarted, this,
-            [=](QString ssid, QString psk, QString ip) {
-            emit logMessage("hotspotStarted cb: ssid=" + ssid + " ip=" + ip);
-
-                if (ssid == "MAC") {
-                    // First callback: got our P2P MAC — now start the group
-                    // and send MAC to client so it can connect()
-                    QString mac = ip;
-                    emit logMessage("P2P MAC: " + mac);
-
-                    // Write MAC to BLE so client knows who to connect() to
-                    QString payload = "CONNECT::" + mac + "::45678";
-                    auto ch = m_negotiationService->characteristic(HOTSPOT_CHAR_UUID);
-                    m_negotiationService->writeCharacteristic(ch, payload.toUtf8());
-
-                    bridge->startHotspot(); // now create the group
-                    return;
-                }
-
-                // Second callback: group is up, SSID/PSK/IP known
-                // Write full creds for reference (client already connecting by MAC)
-                QString payload = ssid + "::" + psk + "::" + ip + "::45678";
-                emit logMessage("Writing creds to peripheral char, size="
-                        + QString::number(payload.toUtf8().size()));
-                auto ch = m_negotiationService->characteristic(HOTSPOT_CHAR_UUID);
-                emit logMessage("Char valid: " + QString::number(ch.isValid()));
-                m_negotiationService->writeCharacteristic(ch, payload.toUtf8());
-                emit logMessage("P2P group up: " + ssid);
-
-                if (!m_transport) {
-                    m_transport = new TransportManager(this);
-                    connect(m_transport, &TransportManager::textReceived,
-                            this, &BluetoothManager::textReceived);
-                    connect(m_transport, &TransportManager::fileCompleted,
-                            this, &BluetoothManager::fileCompleted);
-                    connect(m_transport, &TransportManager::transferProgress,
-                            this, &BluetoothManager::transferProgress);
-                    connect(m_transport, &TransportManager::logMessage,
-                            this, &BluetoothManager::logMessage);
-                    connect(m_transport, &TransportManager::connected, this,
-                            [=]() { emit logMessage("TCP ready — peer connected"); });
-                    m_transport->startServer(45678);
-                }
-
-            });
-
-    bridge->getP2pMacAddress();
-
-    } else {
-        // Client: watch for the host to write HOTSPOT_CHAR
-        //connect(m_negotiationService, &QLowEnergyService::characteristicChanged,
-        //        this, [=](const QLowEnergyCharacteristic &ch, const QByteArray &val) {
-        //        if (ch.uuid() != HOTSPOT_CHAR_UUID) return;
-        //        QStringList parts = QString::fromUtf8(val).split("::");
-        //        if (parts.size() < 4) return;
-        //        QString ssid = parts[0], psk = parts[1],
-        //        ip   = parts[2], port = parts[3];
-        //        emit logMessage("Got creds, connecting to " + ssid);
-
-        //        auto *bridge = new HotspotBridge(this);
-        //        connect(bridge, &HotspotBridge::hotspotStarted, this,
-        //                [=](QString, QString, QString) {
-        //                // WiFi joined — now open the TCP socket
-        //                emit readyToConnect(ip, port.toUInt());
-        //                });
-        //        bridge->connectToHotspot(ssid, psk);
-        //        });
-        //connect(remoteSvc, &QLowEnergyService::characteristicChanged,
-        //    this, [=](const QLowEnergyCharacteristic &ch, const QByteArray &val) {
-        //        if (ch.uuid() != HOTSPOT_CHAR_UUID) return;
-        //        QStringList parts = QString::fromUtf8(val).split("::");
-        //        if (parts.size() < 4) return;
-        //        QString ssid = parts[0], psk  = parts[1],
-        //                ip   = parts[2], port = parts[3];
-        //        emit logMessage("Got creds → " + ssid + " @ " + ip);
-
-        //        auto *bridge = new HotspotBridge(this);
-        //        connect(bridge, &HotspotBridge::hotspotStarted, this,
-        //                [=](QString, QString, QString) {
-        //                    emit readyToConnect(ip, port.toUInt());
-        //                });
-        //        bridge->connectToHotspot(ssid, psk);
-        //    });
-        connect(remoteSvc, &QLowEnergyService::characteristicChanged, this,
-        [=](const QLowEnergyCharacteristic &ch, const QByteArray &val) {
-            if (ch.uuid() != HOTSPOT_CHAR_UUID) return;
-            QStringList parts = QString::fromUtf8(val).split("::");
-
-            if (parts[0] == "CONNECT") {
-                // Got host's P2P MAC — initiate WiFi Direct connect
-                QString mac  = parts[1];
-                QString port = parts[2];
-                emit logMessage("Connecting P2P to " + mac);
-
-                auto *bridge = new HotspotBridge(this);
-                connect(bridge, &HotspotBridge::hotspotStarted, this,
-                        [=](QString, QString, QString ownerIp) {
-                        // P2P is up — NOW connect TCP
                         m_transport = new TransportManager(this);
                         connect(m_transport, &TransportManager::logMessage,
                                 this, &BluetoothManager::logMessage);
                         connect(m_transport, &TransportManager::connected, this,
-                                [=]() { emit logMessage("TCP ready — connected to host"); });
-                        m_transport->connectToHost(ownerIp, port.toUInt());
-                        });
+                                [=]() { emit logMessage("TCP ready — peer connected"); });
+                        connect(m_transport, &TransportManager::textReceived,
+                                this, &BluetoothManager::textReceived);
+                        m_transport->startServer(45678);
+                    }
+                });
+        bridge->startHotspot();
+    } else {
+        connect(remoteSvc, &QLowEnergyService::characteristicChanged, this,
+                [=](const QLowEnergyCharacteristic &ch, const QByteArray &val) {
+                    if (ch.uuid() != HOTSPOT_CHAR_UUID) return;
+                    QStringList parts = QString::fromUtf8(val).split("::");
+                    if (parts[0] != "READY" || parts.size() < 2) return;
+
+                    quint16 port = parts[1].toUInt();
+                    emit logMessage("Host ready — starting P2P discovery");
+
+                    auto *bridge = new HotspotBridge(this);
+
+                    // When a peer is found, connect to it
+                    connect(bridge, &HotspotBridge::peerFound, this,
+                            [=](QString name, QString addr) {
+                                emit logMessage("P2P peer found: " + name);
+                                // Match by the BLE advertised name
+                                if (name == "P2PNode" || !name.isEmpty()) {
+                                    bridge->connectToPeer(addr);
+                                }
+                            });
+
+                    // When P2P is connected, open TCP
+                    connect(bridge, &HotspotBridge::hotspotStarted, this,
+                            [=](QString, QString, QString ownerIp) {
+                                m_transport = new TransportManager(this);
+                                connect(m_transport, &TransportManager::logMessage,
+                                        this, &BluetoothManager::logMessage);
+                                connect(m_transport, &TransportManager::connected,
+                                        this, [=]() {
+                                            emit logMessage("TCP ready — connected to host");
+                                        });
+                                connect(m_transport, &TransportManager::textReceived,
+                                        this, &BluetoothManager::textReceived);
+                                m_transport->connectToHost(ownerIp, port);
+                            });
+
+                    bridge->discoverAndConnect();
+                });
 
                 return;
             }
 
 
-            // Full creds payload (optional fallback)
-            if (parts.size() >= 4) {
-                QString ip   = parts[2];
-                QString port = parts[3];
-                emit readyToConnect(ip, port.toUInt());
-            }
-        });
-    }
+            //// Full creds payload (optional fallback)
+            //if (parts.size() >= 4) {
+            //    QString ip   = parts[2];
+            //    QString port = parts[3];
+            //    emit readyToConnect(ip, port.toUInt());
+            //}
+        //});
+    //}
 }

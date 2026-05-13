@@ -121,3 +121,42 @@ HotspotBridge::instance()->handleHotspotStopped();
 }
 
 } // extern "C"
+  //
+void HotspotBridge::handlePeerFound(const QString &name, const QString &addr) {
+    emit peerFound(name, addr);
+}
+extern "C" JNIEXPORT void JNICALL
+Java_io_bari_qshare_HotspotManager_onPeerFound(
+    JNIEnv *env, jobject, jstring name, jstring addr)
+{
+    auto toQt = [&](jstring js) {
+        const char *c = env->GetStringUTFChars(js, nullptr);
+        QString s = QString::fromUtf8(c);
+        env->ReleaseStringUTFChars(js, c);
+        return s;
+    };
+    if (HotspotBridge::instance())
+        HotspotBridge::instance()->handlePeerFound(toQt(name), toQt(addr));
+}
+
+void HotspotBridge::connectToPeer(const QString &deviceAddress)
+{
+#ifdef Q_OS_ANDROID
+    m_javaObj.callMethod<void>(
+        "connectToPeer",
+        "(Ljava/lang/String;)V",
+        QJniObject::fromString(deviceAddress).object<jstring>()
+    );
+#else
+    emit hotspotFailed("Not on Android");
+#endif
+}
+
+void HotspotBridge::discoverAndConnect()
+{
+#ifdef Q_OS_ANDROID
+    m_javaObj.callMethod<void>("discoverAndConnect");
+#else
+    emit hotspotFailed("Not on Android");
+#endif
+}

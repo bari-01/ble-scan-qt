@@ -48,9 +48,19 @@ class BluetoothManager : public QObject
 
         Q_INVOKABLE void onCharacteristicWritten(const QLowEnergyCharacteristic &ch, const QByteArray &val0);
 
+        Q_INVOKABLE void sendText(const QString &text) {
+            if (m_transport) m_transport->sendText(text);
+            else emit logMessage("sendText: no transport yet");
+        }
+
+        Q_INVOKABLE void sendFile(const QString &path) {
+            if (m_transport) m_transport->sendFile(path);
+            else emit logMessage("sendFile: no transport yet");
+        }
+
         void electHost(uint32_t remoteNonce, QLowEnergyService *remoteSvc);
 
-signals:
+    signals:
         void deviceFound(QString name, QString address);
         void logMessage(QString message);
         void readyToConnect(QString ip, quint16 port); //
