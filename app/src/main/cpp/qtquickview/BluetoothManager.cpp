@@ -262,22 +262,6 @@ void BluetoothManager::electHost(uint32_t remoteNonce, QLowEnergyService *remote
                 emit logMessage("Char valid: " + QString::number(ch.isValid()));
                 m_negotiationService->writeCharacteristic(ch, payload.toUtf8());
                 emit logMessage("P2P group up: " + ssid);
-
-                if (!m_transport) {
-                    m_transport = new TransportManager(this);
-                    connect(m_transport, &TransportManager::textReceived,
-                            this, &BluetoothManager::textReceived);
-                    connect(m_transport, &TransportManager::fileCompleted,
-                            this, &BluetoothManager::fileCompleted);
-                    connect(m_transport, &TransportManager::transferProgress,
-                            this, &BluetoothManager::transferProgress);
-                    connect(m_transport, &TransportManager::logMessage,
-                            this, &BluetoothManager::logMessage);
-                    connect(m_transport, &TransportManager::connected, this,
-                            [=]() { emit logMessage("TCP ready — peer connected"); });
-                    m_transport->startServer(45678);
-                }
-
             });
 
     bridge->getP2pMacAddress();
@@ -331,18 +315,11 @@ void BluetoothManager::electHost(uint32_t remoteNonce, QLowEnergyService *remote
                 auto *bridge = new HotspotBridge(this);
                 connect(bridge, &HotspotBridge::hotspotStarted, this,
                         [=](QString, QString, QString ownerIp) {
-                        // P2P is up — NOW connect TCP
-                        m_transport = new TransportManager(this);
-                        connect(m_transport, &TransportManager::logMessage,
-                                this, &BluetoothManager::logMessage);
-                        connect(m_transport, &TransportManager::connected, this,
-                                [=]() { emit logMessage("TCP ready — connected to host"); });
-                        m_transport->connectToHost(ownerIp, port.toUInt());
+                            emit readyToConnect(ownerIp, port.toUInt());
                         });
-
+                bridge->connectToHotspot(mac, "");
                 return;
             }
-
 
             // Full creds payload (optional fallback)
             if (parts.size() >= 4) {

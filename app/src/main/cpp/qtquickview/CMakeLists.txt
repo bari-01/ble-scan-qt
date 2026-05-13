@@ -41,8 +41,6 @@ qt_add_executable(qtquickview
         BluetoothManager.h
         HotspotBridge.cpp
         HotspotBridge.h
-        TransportManager.cpp
-        TransportManager.h
 )
 
 # Add includes for SimpleBLE's internal dependencies so main.cpp can initialize it

@@ -9,10 +9,12 @@ Rectangle {
     Material.theme: Material.Dark
     Material.accent: Material.Blue
 
-    readonly property real u: Screen.pixelDensity * 1.75
-    readonly property real fontSmall: u * 1.0
-    readonly property real fontMid:   u * 1.4
-    readonly property real fontTitle: u * 2.4
+    // ── One place to tune sizes ───────────────────────────────────────────────
+    readonly property real u: Screen.pixelDensity * 1.75   // ~1 "unit" ≈ 3.5mm
+    readonly property real fontSmall:  u * 1.0
+    readonly property real fontMid:    u * 1.4
+    readonly property real fontLarge:  u * 1.8
+    readonly property real fontTitle:  u * 2.4
 
     ColumnLayout {
         anchors.fill: parent
@@ -29,12 +31,12 @@ Rectangle {
 
         // Status pill
         Rectangle {
-            id: statusPill
             Layout.fillWidth: true
             height: u * 4
             radius: height / 2
-            color: "#333333"
+            color: statusColor
             Behavior on color { ColorAnimation { duration: 300 } }
+            property string statusColor: "#333333"
 
             Label {
                 id: statusLabel
@@ -58,7 +60,7 @@ Rectangle {
                 onClicked: {
                     Bluetooth.startPeripheral()
                     statusLabel.text = "Advertising…"
-                    statusPill.color = "#1A3A5C"
+                    statusLabel.parent.statusColor = "#1A3A5C"
                 }
             }
 
@@ -71,19 +73,9 @@ Rectangle {
                     deviceModel.clear()
                     Bluetooth.startScan()
                     statusLabel.text = "Scanning…"
-                    statusPill.color = "#1A3A5C"
+                    statusLabel.parent.statusColor = "#1A3A5C"
                 }
             }
-        }
-
-        // Transfer progress bar — hidden until a transfer is active
-        ProgressBar {
-            id: progressBar
-            Layout.fillWidth: true
-            visible: value > 0 && value < 1
-            value: 0
-            from: 0
-            to: 1
         }
 
         // Log box
@@ -94,15 +86,13 @@ Rectangle {
             radius: u
 
             ScrollView {
-                id: logScroll
                 anchors.fill: parent
                 anchors.margins: u * 0.8
                 clip: true
 
                 Column {
-                    id: logColumn
                     spacing: u * 0.3
-                    width: logScroll.width
+                    width: parent.width
 
                     Repeater {
                         model: logModel
@@ -111,7 +101,7 @@ Rectangle {
                             color: msgColor
                             font.pixelSize: fontSmall
                             wrapMode: Text.Wrap
-                            width: logColumn.width
+                            width: parent.width
                         }
                     }
                 }
@@ -138,7 +128,7 @@ Rectangle {
                     onClicked: {
                         Bluetooth.connectToDevice(address)
                         statusLabel.text = "Connecting to " + name + "…"
-                        statusPill.color = "#2A2A1A"
+                        statusLabel.parent.statusColor = "#2A2A1A"
                     }
                 }
 
@@ -149,14 +139,6 @@ Rectangle {
                     Text { text: address; color: "gray";  font.pixelSize: fontSmall }
                 }
             }
-        }
-
-        Button {
-            text: "Send Test"
-            Layout.fillWidth: true
-            font.pixelSize: fontMid
-            implicitHeight: u * 5
-            onClicked: Bluetooth.sendText("ping from device")
         }
 
         ListModel { id: deviceModel }
@@ -172,45 +154,25 @@ Rectangle {
         }
 
         function onLogMessage(message) {
-            if (message.indexOf("HOST") !== -1) {
+            if      (message.indexOf("HOST")       !== -1) {
                 statusLabel.text = "HOST — creating hotspot"
-                statusPill.color = "#1A4A1A"
-            } else if (message.indexOf("CLIENT") !== -1) {
+                statusLabel.parent.statusColor = "#1A4A1A"
+            } else if (message.indexOf("CLIENT")   !== -1) {
                 statusLabel.text = "CLIENT — waiting for creds"
-                statusPill.color = "#4A3A1A"
-            } else if (message.indexOf("P2P group up") !== -1
-                    || message.indexOf("Hotspot up")   !== -1) {
+                statusLabel.parent.statusColor = "#4A3A1A"
+            } else if (message.indexOf("P2P group up") !== -1      // ← add
+                    || message.indexOf("Hotspot up")  !== -1) {
                 statusLabel.text = "P2P up ✓ — " + message.split(": ")[1]
-                statusPill.color = "#1A5A1A"
+                statusLabel.parent.statusColor = "#1A5A1A"
             } else if (message.indexOf("collision") !== -1) {
                 statusLabel.text = "Nonce collision — retrying"
-                statusPill.color = "#5A1A1A"
+                statusLabel.parent.statusColor = "#5A1A1A"
             }
             appendLog(message, "#BBBBBB")
         }
-
-        function onTcpConnected() {
-            statusLabel.text = "TCP connected ✓"
-            statusPill.color = "#0A6A0A"
-            appendLog("TCP up ✓", "#88FF88")
-        }
-
-        function onTextReceived(text) {
-            appendLog("← " + text, "#AAFFAA")
-        }
-
-        function onFileCompleted(path) {
-            progressBar.value = 0
-            appendLog("Saved: " + path, "#88CCFF")
-        }
-
-        function onTransferProgress(sent, total) {
-            progressBar.value = total > 0 ? sent / total : 0
-        }
-
         function onReadyToConnect(ip, port) {
             statusLabel.text = "TCP ready → " + ip + ":" + port
-            statusPill.color = "#1A5A1A"
+            statusLabel.parent.statusColor = "#1A5A1A"
             appendLog("✓ Ready: " + ip + ":" + port, "#88FF88")
         }
     }
