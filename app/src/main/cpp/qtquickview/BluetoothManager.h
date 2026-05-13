@@ -1,5 +1,6 @@
 #pragma once
 
+#include "TransportManager.h"
 #include <QObject>
 #include <QSet>
 #include <QBluetoothDeviceDiscoveryAgent>
@@ -26,6 +27,7 @@ class BluetoothManager : public QObject
         QList<QBluetoothDeviceInfo> m_devices;
         quint32 m_localNonce;
         bool m_isHost = false;
+        TransportManager *m_transport = nullptr;
 
         QLowEnergyAdvertisingData m_advData;
         QLowEnergyController *m_peripheralController = nullptr;
@@ -52,6 +54,11 @@ signals:
         void deviceFound(QString name, QString address);
         void logMessage(QString message);
         void readyToConnect(QString ip, quint16 port); //
+ 
+        void textReceived(QString text);
+        void fileCompleted(QString path);
+        void transferProgress(qint64 sent, qint64 total);
+        void tcpConnected();
         //private:
 
 };
