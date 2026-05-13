@@ -231,36 +231,33 @@ void BluetoothManager::electHost(uint32_t remoteNonce, QLowEnergyService *remote
     if (m_isHost) {
         auto *bridge = new HotspotBridge(this);
 
-        //connect(bridge, &HotspotBridge::hotspotStarted, this,
-        //        [=](QString ssid, QString psk, QString ip) {
-        //        // Write "SSID::PSK::IP::PORT" to remote's HOTSPOT_CHAR
-        //        QString payload = ssid + "::" + psk + "::" + ip + "::45678";
-        //        auto ch = remoteSvc->characteristic(HOTSPOT_CHAR_UUID);
-        //        remoteSvc->writeCharacteristic(
-        //                ch,
-        //                payload.toUtf8(),
-        //                QLowEnergyService::WriteWithResponse
-        //                );
-        //        emit logMessage("Hotspot up, wrote creds to peer");
-        //        });
-        connect(bridge, &HotspotBridge::hotspotStarted, this,
-        [=](QString ssid, QString psk, QString ip) {
-            QString payload = ssid + "::" + psk + "::" + ip + "::45678";
+    connect(bridge, &HotspotBridge::hotspotStarted, this,
+            [=](QString ssid, QString psk, QString ip) {
 
-            // Write to OUR OWN peripheral characteristic, not remoteSvc
-            auto ch = m_negotiationService->characteristic(HOTSPOT_CHAR_UUID);
-            m_negotiationService->writeCharacteristic(ch, payload.toUtf8());
-            //                   ^^^^^^^^^^^^^^^^^^^^^^
-            // m_negotiationService is the peripheral service — this pushes
-            // a notification to all subscribed centrals
+                if (ssid == "MAC") {
+                    // First callback: got our P2P MAC — now start the group
+                    // and send MAC to client so it can connect()
+                    QString mac = ip;
+                    emit logMessage("P2P MAC: " + mac);
 
-            emit logMessage("Hotspot up, notifying peer: " + payload);
-        });
+                    // Write MAC to BLE so client knows who to connect() to
+                    QString payload = "CONNECT::" + mac + "::45678";
+                    auto ch = m_negotiationService->characteristic(HOTSPOT_CHAR_UUID);
+                    m_negotiationService->writeCharacteristic(ch, payload.toUtf8());
 
-        connect(bridge, &HotspotBridge::hotspotFailed, this,
-                [=](QString r) { emit logMessage("Hotspot failed: " + r); });
+                    bridge->startHotspot(); // now create the group
+                    return;
+                }
 
-        bridge->startHotspot();
+                // Second callback: group is up, SSID/PSK/IP known
+                // Write full creds for reference (client already connecting by MAC)
+                QString payload = ssid + "::" + psk + "::" + ip + "::45678";
+                auto ch = m_negotiationService->characteristic(HOTSPOT_CHAR_UUID);
+                m_negotiationService->writeCharacteristic(ch, payload.toUtf8());
+                emit logMessage("P2P group up: " + ssid);
+            });
+
+    bridge->getP2pMacAddress();
 
     } else {
         // Client: watch for the host to write HOTSPOT_CHAR
@@ -281,21 +278,48 @@ void BluetoothManager::electHost(uint32_t remoteNonce, QLowEnergyService *remote
         //                });
         //        bridge->connectToHotspot(ssid, psk);
         //        });
-        connect(remoteSvc, &QLowEnergyService::characteristicChanged,
-            this, [=](const QLowEnergyCharacteristic &ch, const QByteArray &val) {
-                if (ch.uuid() != HOTSPOT_CHAR_UUID) return;
-                QStringList parts = QString::fromUtf8(val).split("::");
-                if (parts.size() < 4) return;
-                QString ssid = parts[0], psk  = parts[1],
-                        ip   = parts[2], port = parts[3];
-                emit logMessage("Got creds → " + ssid + " @ " + ip);
+        //connect(remoteSvc, &QLowEnergyService::characteristicChanged,
+        //    this, [=](const QLowEnergyCharacteristic &ch, const QByteArray &val) {
+        //        if (ch.uuid() != HOTSPOT_CHAR_UUID) return;
+        //        QStringList parts = QString::fromUtf8(val).split("::");
+        //        if (parts.size() < 4) return;
+        //        QString ssid = parts[0], psk  = parts[1],
+        //                ip   = parts[2], port = parts[3];
+        //        emit logMessage("Got creds → " + ssid + " @ " + ip);
+
+        //        auto *bridge = new HotspotBridge(this);
+        //        connect(bridge, &HotspotBridge::hotspotStarted, this,
+        //                [=](QString, QString, QString) {
+        //                    emit readyToConnect(ip, port.toUInt());
+        //                });
+        //        bridge->connectToHotspot(ssid, psk);
+        //    });
+        connect(remoteSvc, &QLowEnergyService::characteristicChanged, this,
+        [=](const QLowEnergyCharacteristic &ch, const QByteArray &val) {
+            if (ch.uuid() != HOTSPOT_CHAR_UUID) return;
+            QStringList parts = QString::fromUtf8(val).split("::");
+
+            if (parts[0] == "CONNECT") {
+                // Got host's P2P MAC — initiate WiFi Direct connect
+                QString mac  = parts[1];
+                QString port = parts[2];
+                emit logMessage("Connecting P2P to " + mac);
 
                 auto *bridge = new HotspotBridge(this);
                 connect(bridge, &HotspotBridge::hotspotStarted, this,
-                        [=](QString, QString, QString) {
-                            emit readyToConnect(ip, port.toUInt());
+                        [=](QString, QString, QString ownerIp) {
+                            emit readyToConnect(ownerIp, port.toUInt());
                         });
-                bridge->connectToHotspot(ssid, psk);
-            });
+                bridge->connectToHotspot(mac, "");
+                return;
+            }
+
+            // Full creds payload (optional fallback)
+            if (parts.size() >= 4) {
+                QString ip   = parts[2];
+                QString port = parts[3];
+                emit readyToConnect(ip, port.toUInt());
+            }
+        });
     }
 }

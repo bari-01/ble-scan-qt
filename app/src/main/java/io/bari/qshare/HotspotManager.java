@@ -1,20 +1,15 @@
 package io.bari.qshare;
 
-import android.Manifest;
+import android.content.BroadcastReceiver;
 import android.content.Context;
-import android.content.pm.PackageManager;
-import android.net.wifi.WifiManager;
-import android.net.wifi.WifiConfiguration;
-import android.net.ConnectivityManager;
-import android.net.NetworkRequest;
-import android.net.NetworkSpecifier;
-import android.net.wifi.WifiNetworkSpecifier;
-import android.os.Build;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.net.wifi.p2p.*;
+import android.net.wifi.p2p.WifiP2pManager.*;
+import android.net.NetworkInfo;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
-
-import androidx.core.app.ActivityCompat;
 
 import java.net.InetAddress;
 import java.net.NetworkInterface;
@@ -23,165 +18,153 @@ import java.util.Collections;
 public class HotspotManager {
     private static final String TAG = "HotspotManager";
 
-    private Context m_context;
-    private WifiManager m_wifiManager;
-    private WifiManager.LocalOnlyHotspotReservation m_reservation;
+    private final Context         m_context;
+    private WifiP2pManager        m_p2pManager;
+    private WifiP2pManager.Channel m_channel;
+    private BroadcastReceiver     m_receiver;
+    private boolean               m_isGroupOwner = false;
+    private String                m_groupOwnerIp = "";
 
-    // Callbacks back into C++ via JNI
+    // ── JNI callbacks ─────────────────────────────────────────────────────────
     public native void onHotspotStarted(String ssid, String psk, String ip);
     public native void onHotspotFailed(String reason);
     public native void onHotspotStopped();
 
     public HotspotManager(Context context) {
-        m_context = context;
-        m_wifiManager = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
+        m_context   = context;
+        m_p2pManager = (WifiP2pManager)
+                context.getSystemService(Context.WIFI_P2P_SERVICE);
+        m_channel   = m_p2pManager.initialize(
+                context, Looper.getMainLooper(), null);
     }
 
-    // Called from C++ to start the hotspot
+    // ── Called by HOST via JNI ────────────────────────────────────────────────
     public void startHotspot() {
-        if (Build.VERSION.SDK_INT < 26) {
-            onHotspotFailed("API < 26 not supported");
-            return;
-        }
+        registerReceiver();
 
-        Handler handler = new Handler(Looper.getMainLooper());
-
-//        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED || ActivityCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
-//            // TODO: Consider calling
-//            //    ActivityCompat#requestPermissions
-//            // here to request the missing permissions, and then overriding
-//            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-//            //                                          int[] grantResults)
-//            // to handle the case where the user grants the permission. See the documentation
-//            // for ActivityCompat#requestPermissions for more details.
-//            return;
-//        }
-        m_wifiManager.startLocalOnlyHotspot(new WifiManager.LocalOnlyHotspotCallback() {
-            @Override
-            public void onStarted(WifiManager.LocalOnlyHotspotReservation reservation) {
-                m_reservation = reservation;
-                WifiConfiguration config = reservation.getWifiConfiguration();
-
-                String ssid = "";
-                String psk  = "";
-
-                if (Build.VERSION.SDK_INT >= 30) {
-                    // API 30+: WifiConfiguration deprecated, use SoftApConfiguration
-                    android.net.wifi.SoftApConfiguration sac =
-                            reservation.getSoftApConfiguration();
-                    ssid = sac.getSsid() != null ? sac.getSsid() : "";
-                    // passphrase only available for WPA2/WPA3
-                    psk  = sac.getPassphrase() != null ? sac.getPassphrase() : "";
+        // Create a persistent P2P group — this device becomes Group Owner
+        m_p2pManager.createGroup(m_channel, new ActionListener() {
+            @Override public void onSuccess() {
+                Log.d(TAG, "createGroup() queued");
+                // Actual SSID/PSK arrive in the broadcast receiver below
+            }
+            @Override public void onFailure(int reason) {
+                // reason 2 = BUSY (group already exists) — request info anyway
+                if (reason == 2) {
+                    Log.w(TAG, "createGroup busy — requesting existing group info");
+                    requestGroupInfo();
                 } else {
-                    ssid = config.SSID;
-                    psk  = config.preSharedKey;
+                    onHotspotFailed("createGroup failed: " + reason);
                 }
-
-                // Strip surrounding quotes Qt/Android sometimes add
-                if (ssid.startsWith("\"")) ssid = ssid.substring(1, ssid.length()-1);
-                if (psk.startsWith("\""))  psk  = psk.substring(1, psk.length()-1);
-
-                // The hotspot gateway is always 192.168.43.1 on most Android builds,
-                // but let's read it properly
-                String ip = getHotspotIp();
-
-                Log.d(TAG, "Hotspot started: " + ssid + " ip=" + ip);
-                onHotspotStarted(ssid, psk, ip);
             }
+        });
+    }
 
-            @Override
-            public void onFailed(int reason) {
-                onHotspotFailed("Reason code: " + reason);
-            }
+    // ── Called by CLIENT via JNI ──────────────────────────────────────────────
+    // peerAddress = WiFi MAC of the host, from BLE payload
+    public void connectToHotspot(String peerAddress, String unusedPsk) {
+        registerReceiver();
 
-            @Override
-            public void onStopped() {
-                onHotspotStopped();
+        WifiP2pConfig config = new WifiP2pConfig();
+        config.deviceAddress = peerAddress.toLowerCase();
+        config.wps.setup     = android.net.wifi.WpsInfo.PBC;
+        config.groupOwnerIntent = 0; // hint: we prefer NOT to be owner
+
+        m_p2pManager.connect(m_channel, config, new ActionListener() {
+            @Override public void onSuccess() {
+                Log.d(TAG, "connect() queued — waiting for CONNECTION_CHANGED");
             }
-        }, handler);
+            @Override public void onFailure(int reason) {
+                onHotspotFailed("P2P connect failed: " + reason);
+            }
+        });
     }
 
     public void stopHotspot() {
-        if (m_reservation != null) {
-            m_reservation.close();
-            m_reservation = null;
-        }
+        m_p2pManager.removeGroup(m_channel, new ActionListener() {
+            @Override public void onSuccess() { Log.d(TAG, "Group removed"); }
+            @Override public void onFailure(int r) { Log.w(TAG, "removeGroup: " + r); }
+        });
+        unregisterReceiver();
+        onHotspotStopped();
     }
 
-    // Reads the hotspot gateway IP from the wlan interface
-    private String getHotspotIp() {
-        try {
-            for (NetworkInterface iface :
-                    Collections.list(NetworkInterface.getNetworkInterfaces())) {
-                // hotspot interface is usually "wlan0" or "ap0"
-                if (!iface.getName().startsWith("wlan") &&
-                        !iface.getName().startsWith("ap")) continue;
-                for (InetAddress addr :
-                        Collections.list(iface.getInetAddresses())) {
-                    if (!addr.isLoopbackAddress() &&
-                            addr.getHostAddress().contains(".")) {
-                        return addr.getHostAddress();
+    // ── Broadcast receiver ────────────────────────────────────────────────────
+    private void registerReceiver() {
+        if (m_receiver != null) return;
+
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION);
+        filter.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);
+        filter.addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION);
+
+        m_receiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context ctx, Intent intent) {
+                String action = intent.getAction();
+                if (action == null) return;
+
+                if (WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION.equals(action)) {
+                    NetworkInfo netInfo = intent.getParcelableExtra(
+                            WifiP2pManager.EXTRA_NETWORK_INFO);
+                    if (netInfo != null && netInfo.isConnected()) {
+                        requestGroupInfo();
                     }
                 }
             }
-        } catch (Exception e) {
-            Log.e(TAG, "getHotspotIp failed", e);
-        }
-        return "192.168.43.1"; // safe fallback
-    }
-
-    // ── Client side ──────────────────────────────────────────────────────────
-    // Android 10+ requires ConnectivityManager for joining a specific hotspot.
-    // Below 10 you can write WifiConfiguration directly — but let's target 10+.
-
-    private ConnectivityManager.NetworkCallback m_networkCallback;
-
-    public void connectToHotspot(String ssid, String psk) {
-        if (Build.VERSION.SDK_INT < 29) {
-            connectLegacy(ssid, psk);
-            return;
-        }
-
-        ConnectivityManager cm = (ConnectivityManager)
-                m_context.getSystemService(Context.CONNECTIVITY_SERVICE);
-
-        WifiNetworkSpecifier spec = new WifiNetworkSpecifier.Builder()
-                .setSsid(ssid)
-                .setWpa2Passphrase(psk)
-                .build();
-
-        NetworkRequest req = new NetworkRequest.Builder()
-                .addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI)
-                .setNetworkSpecifier(spec)
-                .build();
-
-        m_networkCallback = new ConnectivityManager.NetworkCallback() {
-            @Override
-            public void onAvailable(android.net.Network network) {
-                // Bind process to this network so sockets use it
-                cm.bindProcessToNetwork(network);
-                Log.d(TAG, "Connected to peer hotspot");
-                // Notify C++ — host IP is always the gateway we got from BLE
-                onHotspotStarted("CLIENT_CONNECTED", "", "");
-            }
-            @Override
-            public void onUnavailable() {
-                onHotspotFailed("Could not connect to peer hotspot");
-            }
         };
 
-        cm.requestNetwork(req, m_networkCallback);
+        m_context.registerReceiver(m_receiver, filter);
     }
 
-    @SuppressWarnings("deprecation")
-    private void connectLegacy(String ssid, String psk) {
-        WifiConfiguration conf = new WifiConfiguration();
-        conf.SSID = "\"" + ssid + "\"";
-        conf.preSharedKey = "\"" + psk + "\"";
-        int netId = m_wifiManager.addNetwork(conf);
-        m_wifiManager.disconnect();
-        m_wifiManager.enableNetwork(netId, true);
-        m_wifiManager.reconnect();
-        onHotspotStarted("CLIENT_CONNECTED_LEGACY", "", "");
+    private void unregisterReceiver() {
+        if (m_receiver != null) {
+            try { m_context.unregisterReceiver(m_receiver); }
+            catch (Exception e) { /* already unregistered */ }
+            m_receiver = null;
+        }
+    }
+
+    private void requestGroupInfo() {
+        m_p2pManager.requestGroupInfo(m_channel, group -> {
+            if (group == null) {
+                // Not ready yet — retry once after 500ms
+                new Handler(Looper.getMainLooper()).postDelayed(
+                        this::requestGroupInfo, 500);
+                return;
+            }
+
+            m_isGroupOwner = group.isGroupOwner();
+            String ssid    = group.getNetworkName();
+            String psk     = group.getPassphrase();
+
+            Log.d(TAG, "Group info: owner=" + m_isGroupOwner
+                    + " ssid=" + ssid);
+
+            if (m_isGroupOwner) {
+                // My P2P interface IP is always 192.168.49.1 on Android
+                onHotspotStarted(ssid, psk, "192.168.49.1");
+            } else {
+                // Client: group owner IP is in the WifiP2pInfo
+                m_p2pManager.requestConnectionInfo(m_channel, info -> {
+                    String ownerIp = info.groupOwnerAddress != null
+                            ? info.groupOwnerAddress.getHostAddress()
+                            : "192.168.49.1";
+                    // Signal CLIENT_CONNECTED — C++ uses the ip from BLE payload
+                    onHotspotStarted("CLIENT_CONNECTED", "", ownerIp);
+                });
+            }
+        });
+    }
+
+    // Call this from C++ before startHotspot() to get our P2P MAC
+    public void getP2pMacAddress() {
+        m_p2pManager.requestDeviceInfo(m_channel, device -> {
+            if (device != null) {
+                onHotspotStarted("MAC", "", device.deviceAddress);
+                // reusing onHotspotStarted as a callback channel —
+                // C++ checks ssid=="MAC" and extracts ip field as the MAC
+            }
+        });
     }
 }

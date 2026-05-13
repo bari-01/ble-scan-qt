@@ -58,6 +58,15 @@ void HotspotBridge::connectToHotspot(const QString &ssid, const QString &psk) {
 #endif
 }
 
+void HotspotBridge::getP2pMacAddress()
+{
+#ifdef Q_OS_ANDROID
+    m_javaObj.callMethod<void>("getP2pMacAddress");
+#else
+    emit hotspotFailed("Not on Android");
+#endif
+}
+
 // ── JNI callbacks (Java → C++) ───────────────────────────────────────────────
 
 void HotspotBridge::handleHotspotStarted(const QString &ssid,

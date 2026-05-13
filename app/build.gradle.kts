@@ -12,7 +12,7 @@ android {
 
     defaultConfig {
         applicationId = "io.bari.qshare"
-        minSdk = 28
+        minSdk = 29
         //noinspection EditedTargetSdkVersion
         targetSdk = 37
         versionCode = 1

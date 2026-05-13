@@ -15,6 +15,7 @@ public:
     Q_INVOKABLE void startHotspot();
     Q_INVOKABLE void stopHotspot();
     Q_INVOKABLE void connectToHotspot(const QString &ssid, const QString &psk);
+    Q_INVOKABLE void getP2pMacAddress();
 
     // Called by JNI callbacks (static → instance via singleton)
     static HotspotBridge *instance();
