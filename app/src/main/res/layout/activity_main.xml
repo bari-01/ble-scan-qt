@@ -7,3 +7,4 @@
     android:background="#CCCCCC"
     tools:context=".MainActivity">
 </FrameLayout>
+    <!--android:theme="@android:style/Theme.DeviceDefault.NoActionBar"-->

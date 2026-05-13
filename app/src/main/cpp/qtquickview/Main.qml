@@ -5,101 +5,180 @@ import QtQuick.Layouts
 import qmlModule
 
 Rectangle {
-    //width: 400
-    //height: 700
     color: "#121212"
-
     Material.theme: Material.Dark
     Material.accent: Material.Blue
 
+    // ── One place to tune sizes ───────────────────────────────────────────────
+    readonly property real u: Screen.pixelDensity * 1.75   // ~1 "unit" ≈ 3.5mm
+    readonly property real fontSmall:  u * 1.0
+    readonly property real fontMid:    u * 1.4
+    readonly property real fontLarge:  u * 1.8
+    readonly property real fontTitle:  u * 2.4
+
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 16
-        spacing: 12
+        anchors.margins: u * 2
+        spacing: u
 
-        // Header
         Label {
-            text: "BLE Scanner"
-            font.pointSize: 72          // reasonable size for Android
+            text: "P2P Test"
+            font.pixelSize: fontTitle
             font.bold: true
             color: "white"
             Layout.alignment: Qt.AlignHCenter
         }
 
-        // Scan button
-        Button {
-            text: "Scan Devices"
+        // Status pill
+        Rectangle {
             Layout.fillWidth: true
-            font.pointSize: 60
-            height: 144                   // comfortable height for tapping
-            onClicked: {
-                deviceModel.clear()
-                Bluetooth.startScan()
+            height: u * 4
+            radius: height / 2
+            color: statusColor
+            Behavior on color { ColorAnimation { duration: 300 } }
+            property string statusColor: "#333333"
+
+            Label {
+                id: statusLabel
+                anchors.centerIn: parent
+                text: "Idle"
+                color: "white"
+                font.pixelSize: fontMid
+                font.bold: true
             }
         }
 
-        // Log text
-        Label {
-            id: logText
-            text: "Ready"
-            color: "#BBBBBB"
-            font.pointSize: 60
-            wrapMode: Text.Wrap
-            width: 600
+        RowLayout {
             Layout.fillWidth: true
+            spacing: u
+
+            Button {
+                text: "Advertise"
+                Layout.fillWidth: true
+                font.pixelSize: fontMid
+                implicitHeight: u * 5
+                onClicked: {
+                    Bluetooth.startPeripheral()
+                    statusLabel.text = "Advertising…"
+                    statusLabel.parent.statusColor = "#1A3A5C"
+                }
+            }
+
+            Button {
+                text: "Scan"
+                Layout.fillWidth: true
+                font.pixelSize: fontMid
+                implicitHeight: u * 5
+                onClicked: {
+                    deviceModel.clear()
+                    Bluetooth.startScan()
+                    statusLabel.text = "Scanning…"
+                    statusLabel.parent.statusColor = "#1A3A5C"
+                }
+            }
+        }
+
+        // Log box
+        Rectangle {
+            Layout.fillWidth: true
+            height: u * 12
+            color: "#1E1E1E"
+            radius: u
+
+            ScrollView {
+                anchors.fill: parent
+                anchors.margins: u * 0.8
+                clip: true
+
+                Column {
+                    spacing: u * 0.3
+                    width: parent.width
+
+                    Repeater {
+                        model: logModel
+                        Label {
+                            text: msg
+                            color: msgColor
+                            font.pixelSize: fontSmall
+                            wrapMode: Text.Wrap
+                            width: parent.width
+                        }
+                    }
+                }
+            }
         }
 
         // Device list
         ListView {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: 8
+            spacing: u * 0.6
+            clip: true
             model: deviceModel
 
             delegate: Rectangle {
                 width: ListView.view.width
-                height: 144                 // good size for readability
-                radius: 30
+                height: u * 6
+                radius: u
                 color: "#1E1E1E"
-                border.color: "#333333"
+                border.color: "#444444"
 
                 MouseArea {
                     anchors.fill: parent
-                    anchors.margins: 12
-
                     onClicked: {
                         Bluetooth.connectToDevice(address)
+                        statusLabel.text = "Connecting to " + name + "…"
+                        statusLabel.parent.statusColor = "#2A2A1A"
                     }
                 }
 
                 Column {
                     anchors.centerIn: parent
-
-                    Text { text: name; color: "white"; font.pixelSize: 55 }
-                    Text { text: address; color: "gray"; font.pixelSize: 55 }
+                    spacing: u * 0.3
+                    Text { text: name;    color: "white"; font.pixelSize: fontMid }
+                    Text { text: address; color: "gray";  font.pixelSize: fontSmall }
                 }
             }
         }
 
-        // Device model
-        ListModel {
-            id: deviceModel
-        }
+        ListModel { id: deviceModel }
+        ListModel { id: logModel }
     }
 
-    // Bluetooth signals
     Connections {
         target: Bluetooth
 
         function onDeviceFound(name, address) {
-            deviceModel.append({
-                "name": name,
-                "address": address
-            })
+            deviceModel.append({ "name": name, "address": address })
+            appendLog("Found: " + name + " [" + address + "]", "#88CCFF")
         }
 
         function onLogMessage(message) {
-            logText.text = message
+            if      (message.indexOf("HOST")        !== -1) {
+                statusLabel.text = "HOST — creating hotspot"
+                statusLabel.parent.statusColor = "#1A4A1A"
+            } else if (message.indexOf("CLIENT")    !== -1) {
+                statusLabel.text = "CLIENT — waiting for creds"
+                statusLabel.parent.statusColor = "#4A3A1A"
+            } else if (message.indexOf("Hotspot up") !== -1) {
+                statusLabel.text = "Hotspot up ✓"
+                statusLabel.parent.statusColor = "#1A5A1A"
+            } else if (message.indexOf("collision") !== -1) {
+                statusLabel.text = "Nonce collision — retrying"
+                statusLabel.parent.statusColor = "#5A1A1A"
+            }
+            appendLog(message, "#BBBBBB")
         }
+
+        function onReadyToConnect(ip, port) {
+            statusLabel.text = "TCP ready → " + ip + ":" + port
+            statusLabel.parent.statusColor = "#1A5A1A"
+            appendLog("✓ Ready: " + ip + ":" + port, "#88FF88")
+        }
+    }
+
+    function appendLog(msg, color) {
+        logModel.append({ "msg": msg, "msgColor": color })
+        if (logModel.count > 20) logModel.remove(0)
     }
 }

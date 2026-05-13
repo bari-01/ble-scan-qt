@@ -1,51 +1,48 @@
 #include "BluetoothManager.h"
+#include "HotspotBridge.h"
+
+const QBluetoothUuid BluetoothManager::SERVICE_UUID =
+QBluetoothUuid(QString("12345678-1234-1234-1234-123456789abc"));
+const QBluetoothUuid BluetoothManager::NONCE_CHAR_UUID =
+QBluetoothUuid(QString("12345678-1234-1234-1234-123456789ab1"));
+const QBluetoothUuid BluetoothManager::HOTSPOT_CHAR_UUID =
+QBluetoothUuid(QString("12345678-1234-1234-1234-123456789ab2"));
 
 BluetoothManager::BluetoothManager(QObject *parent) : QObject(parent)
 {
     m_discoveryAgent = new QBluetoothDeviceDiscoveryAgent(this);
 
-    connect(m_discoveryAgent, &QBluetoothDeviceDiscoveryAgent::deviceDiscovered, this,
-            [this](const QBluetoothDeviceInfo &device)
-            {
-                if (!(device.coreConfigurations() &
-                      QBluetoothDeviceInfo::LowEnergyCoreConfiguration))
-                {
-                    return;
-                }
+    connect(m_discoveryAgent, &QBluetoothDeviceDiscoveryAgent::deviceDiscovered,
+            this, &BluetoothManager::onDeviceDiscovered);
 
-                QString address = device.address().toString();
+    connect(m_discoveryAgent,&QBluetoothDeviceDiscoveryAgent::errorOccurred,
+            this, [=](QBluetoothDeviceDiscoveryAgent::Error error)
+            { emit logMessage(QString("Scan error: %1").arg(error)); });
 
-                if (m_seenAddresses.contains(address))
-                    return;
+    connect(m_discoveryAgent, &QBluetoothDeviceDiscoveryAgent::finished,
+            this, [=]() { emit logMessage("Scan finished"); });
+}
 
-                m_seenAddresses.insert(address);
+void BluetoothManager::onDeviceDiscovered(const QBluetoothDeviceInfo &device)
+{
+    if (!(device.coreConfigurations() &
+                QBluetoothDeviceInfo::LowEnergyCoreConfiguration))
+        return;
 
-                m_deviceMap.insert(address, device);
-                QString name = device.name();
+    if (!device.serviceUuids().contains(BluetoothManager::SERVICE_UUID))
+        return;
 
-                if (name.isEmpty())
-                    name = "Unknown";
+    QString address = device.address().toString();
 
-                emit deviceFound(name, address);
-            }
-    );
+    if (m_seenAddresses.contains(address)) return;
 
-    connect(m_discoveryAgent,&QBluetoothDeviceDiscoveryAgent::errorOccurred, this,
-            [this](QBluetoothDeviceDiscoveryAgent::Error error)
-            {
-                emit logMessage(
-                        QString("Scan error: %1")
-                                .arg(error)
-                );
-            }
-    );
+    m_seenAddresses.insert(address);
+    m_deviceMap.insert(address, device);
 
-    connect(m_discoveryAgent, &QBluetoothDeviceDiscoveryAgent::finished, this,
-            [this]() -> void
-            {
-                emit logMessage("Scan finished");
-            }
-    );
+    QString name = device.name();
+    if (name.isEmpty()) name = "Unknown";
+
+    emit deviceFound(name, address);
 }
 
 void BluetoothManager::startScan()
@@ -61,25 +58,16 @@ void BluetoothManager::startScan()
 void BluetoothManager::connectToDevice(const QString &address)
 {
     if (!m_deviceMap.contains(address)) return;
-
-    auto device = m_deviceMap[address];
+    QBluetoothDeviceInfo device = m_deviceMap[address];
 
     emit logMessage("Connecting...");
-
-    auto *controller = QLowEnergyController::createCentral(device, this);
+    QLowEnergyController *controller = QLowEnergyController::createCentral(device, this);
 
     connect(controller, &QLowEnergyController::connected, this,
-            [=]()
-            {
-                emit logMessage("Connected. Discovering services...");
-                controller->discoverServices();
-            }
-    );
-
-    connect(controller, &QLowEnergyController::serviceDiscovered, this,
-            [=](const QBluetoothUuid &uuid)
-            { emit logMessage("Service: " + uuid.toString()); }
-    );
+            [=]() {
+            emit logMessage("Connected. Discovering services...");
+            controller->discoverServices();
+            });
 
     //connect(controller, QOverload<QLowEnergyController::Error>::of(&QLowEnergyController::error), this,
     //        [this, controller](QLowEnergyController::Error error)
@@ -90,9 +78,224 @@ void BluetoothManager::connectToDevice(const QString &address)
     //);
 
     connect(controller, &QLowEnergyController::disconnected, this,
-            [=]()
-            { emit logMessage("Disconnected"); }
-    );
+            [=]() { emit logMessage("Disconnected"); });
+
+    connect(controller, &QLowEnergyController::serviceDiscovered, this,
+            [=](const QBluetoothUuid &uuid) {
+            emit logMessage("Service: " + uuid.toString());
+            if (uuid != SERVICE_UUID) return;
+            auto *svc = controller->createServiceObject(uuid, this);
+            svc->discoverDetails();
+
+            connect(svc, &QLowEnergyService::stateChanged, this,
+                    [=](QLowEnergyService::ServiceState state) {
+                    if (state != QLowEnergyService::RemoteServiceDiscovered) return;
+
+            // ── Enable notifications on HOTSPOT_CHAR ──────────────────────
+            auto hotspotChar = svc->characteristic(HOTSPOT_CHAR_UUID);
+
+            // Find the CCCD descriptor
+            auto cccd = hotspotChar.descriptor(
+                QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration
+            );
+            if (cccd.isValid()) {
+                svc->writeDescriptor(cccd,
+                    QByteArray::fromHex("0100")  // enable notifications
+                );
+                emit logMessage("Subscribed to HOTSPOT_CHAR notifications");
+            } else {
+                emit logMessage("WARNING: No CCCD on HOTSPOT_CHAR — polling instead");
+            }
+            // ─────────────────────────────────────────────────────────────
+
+                    auto nonceChar = svc->characteristic(NONCE_CHAR_UUID);
+                    QByteArray val = nonceChar.value();
+                    uint32_t remoteNonce = qFromBigEndian<uint32_t>(
+                            reinterpret_cast<const uchar*>(val.constData())
+                            );
+                    electHost(remoteNonce, svc);
+                    });
+            });
+
 
     controller->connectToDevice();
+}
+
+void BluetoothManager::startPeripheral()
+{
+    // Generate nonce
+    m_localNonce = QRandomGenerator::global()->generate(); // uint32
+
+    // Build GATT service definition
+    QLowEnergyCharacteristicData nonceChar;
+    nonceChar.setUuid(NONCE_CHAR_UUID);
+    nonceChar.setProperties(
+            QLowEnergyCharacteristic::Read | QLowEnergyCharacteristic::Write
+            );
+    // Pack nonce as 4 bytes
+    QByteArray nonceBytes(4, 0);
+    qToBigEndian(m_localNonce, nonceBytes.data());
+    nonceChar.setValue(nonceBytes);
+
+    //QLowEnergyCharacteristicData hotspotChar;
+    //hotspotChar.setUuid(HOTSPOT_CHAR_UUID);
+    //hotspotChar.setProperties(QLowEnergyCharacteristic::Read
+    //        | QLowEnergyCharacteristic::Write);
+    //hotspotChar.setValue(QByteArray()); // filled in later by host
+                                        //
+    QLowEnergyCharacteristicData hotspotChar;
+    hotspotChar.setUuid(HOTSPOT_CHAR_UUID);
+    hotspotChar.setProperties(
+            QLowEnergyCharacteristic::Read  |
+            QLowEnergyCharacteristic::Write |
+            QLowEnergyCharacteristic::Notify   // ← must be here
+            );
+
+    QLowEnergyDescriptorData cccd(
+            QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration,
+            QByteArray(2, 0)
+            );
+    //cccd.setReadConstraints(QBluetooth::AttAccessConstraint(0));   // open read
+    //cccd.setWriteConstraints(QBluetooth::AttAccessConstraint(0));  // open write
+    hotspotChar.addDescriptor(cccd);     // ← must be here
+    hotspotChar.setValue(QByteArray());
+
+    QLowEnergyServiceData serviceData;
+    serviceData.setType(QLowEnergyServiceData::ServiceTypePrimary);
+    serviceData.setUuid(SERVICE_UUID);
+    serviceData.addCharacteristic(nonceChar);
+    serviceData.addCharacteristic(hotspotChar);
+
+    m_peripheralController = QLowEnergyController::createPeripheral(this);
+    m_negotiationService = m_peripheralController->addService(serviceData);
+
+    // Watch for writes from the remote peer
+    connect(m_negotiationService, &QLowEnergyService::characteristicChanged,
+            this, &BluetoothManager::onCharacteristicWritten);
+
+    // Advertise with your service UUID so peers can filter on it
+    QLowEnergyAdvertisingData advData;
+    advData.setDiscoverability(QLowEnergyAdvertisingData::DiscoverabilityGeneral);
+    advData.setServices({SERVICE_UUID});
+    advData.setLocalName("P2PNode");
+
+    m_peripheralController->startAdvertising(QLowEnergyAdvertisingParameters(), advData);
+    emit logMessage("Advertising started, nonce: " + QString::number(m_localNonce));
+}
+
+void BluetoothManager::onCharacteristicWritten(
+    const QLowEnergyCharacteristic &ch, const QByteArray &val)
+{
+    if (ch.uuid() == NONCE_CHAR_UUID) {
+        // Remote updated their nonce after a collision re-roll
+        if (val.size() < 4) return;
+        uint32_t remoteNonce = qFromBigEndian<uint32_t>(
+            reinterpret_cast<const uchar*>(val.constData())
+        );
+        emit logMessage("Peer re-rolled nonce: " + QString::number(remoteNonce));
+        // Re-elect — but we need the remoteSvc for this.
+        // Problem: onCharacteristicWritten doesn't have remoteSvc in scope.
+        // Solution: cache it (see note below)
+        electHost(remoteNonce, m_remoteSvc);
+        return;
+    }
+
+    if (ch.uuid() == HOTSPOT_CHAR_UUID) {
+        // Shouldn't happen on host (host writes this, not reads it),
+        // but guard anyway
+        emit logMessage("Unexpected HOTSPOT_CHAR write on peripheral");
+    }
+}
+
+void BluetoothManager::electHost(uint32_t remoteNonce, QLowEnergyService *remoteSvc)
+{
+    if (remoteSvc) m_remoteSvc = remoteSvc; // cache it for onCharacteristicWritten
+
+    if (m_localNonce == remoteNonce) {
+        emit logMessage("Nonce collision — re-rolling");
+        // re-advertise with new nonce, retry
+        m_localNonce = QRandomGenerator::global()->generate();
+        // update local characteristic value
+        auto ch = m_negotiationService->characteristic(NONCE_CHAR_UUID);
+        QByteArray nb(4, 0);
+        qToBigEndian(m_localNonce, nb.data());
+        m_negotiationService->writeCharacteristic(ch, nb);
+        return;
+    }
+
+    m_isHost = (m_localNonce > remoteNonce);
+    emit logMessage(m_isHost ? "I am HOST → will create hotspot"
+            : "I am CLIENT → will connect to hotspot");
+
+
+    if (m_isHost) {
+        auto *bridge = new HotspotBridge(this);
+
+        //connect(bridge, &HotspotBridge::hotspotStarted, this,
+        //        [=](QString ssid, QString psk, QString ip) {
+        //        // Write "SSID::PSK::IP::PORT" to remote's HOTSPOT_CHAR
+        //        QString payload = ssid + "::" + psk + "::" + ip + "::45678";
+        //        auto ch = remoteSvc->characteristic(HOTSPOT_CHAR_UUID);
+        //        remoteSvc->writeCharacteristic(
+        //                ch,
+        //                payload.toUtf8(),
+        //                QLowEnergyService::WriteWithResponse
+        //                );
+        //        emit logMessage("Hotspot up, wrote creds to peer");
+        //        });
+        connect(bridge, &HotspotBridge::hotspotStarted, this,
+        [=](QString ssid, QString psk, QString ip) {
+            QString payload = ssid + "::" + psk + "::" + ip + "::45678";
+
+            // Write to OUR OWN peripheral characteristic, not remoteSvc
+            auto ch = m_negotiationService->characteristic(HOTSPOT_CHAR_UUID);
+            m_negotiationService->writeCharacteristic(ch, payload.toUtf8());
+            //                   ^^^^^^^^^^^^^^^^^^^^^^
+            // m_negotiationService is the peripheral service — this pushes
+            // a notification to all subscribed centrals
+
+            emit logMessage("Hotspot up, notifying peer: " + payload);
+        });
+
+        connect(bridge, &HotspotBridge::hotspotFailed, this,
+                [=](QString r) { emit logMessage("Hotspot failed: " + r); });
+
+        bridge->startHotspot();
+
+    } else {
+        // Client: watch for the host to write HOTSPOT_CHAR
+        //connect(m_negotiationService, &QLowEnergyService::characteristicChanged,
+        //        this, [=](const QLowEnergyCharacteristic &ch, const QByteArray &val) {
+        //        if (ch.uuid() != HOTSPOT_CHAR_UUID) return;
+        //        QStringList parts = QString::fromUtf8(val).split("::");
+        //        if (parts.size() < 4) return;
+        //        QString ssid = parts[0], psk = parts[1],
+        //        ip   = parts[2], port = parts[3];
+        //        emit logMessage("Got creds, connecting to " + ssid);
+
+        //        auto *bridge = new HotspotBridge(this);
+        //        connect(bridge, &HotspotBridge::hotspotStarted, this,
+        //                [=](QString, QString, QString) {
+        //                // WiFi joined — now open the TCP socket
+        //                emit readyToConnect(ip, port.toUInt());
+        //                });
+        //        bridge->connectToHotspot(ssid, psk);
+        //        });
+        connect(remoteSvc, &QLowEnergyService::characteristicChanged,
+            this, [=](const QLowEnergyCharacteristic &ch, const QByteArray &val) {
+                if (ch.uuid() != HOTSPOT_CHAR_UUID) return;
+                QStringList parts = QString::fromUtf8(val).split("::");
+                if (parts.size() < 4) return;
+                QString ssid = parts[0], psk  = parts[1],
+                        ip   = parts[2], port = parts[3];
+                emit logMessage("Got creds → " + ssid + " @ " + ip);
+
+                auto *bridge = new HotspotBridge(this);
+                connect(bridge, &HotspotBridge::hotspotStarted, this,
+                        [=](QString, QString, QString) {
+                            emit readyToConnect(ip, port.toUInt());
+                        });
+                bridge->connectToHotspot(ssid, psk);
+            });
+    }
 }
