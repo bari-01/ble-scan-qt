@@ -186,6 +186,9 @@ void BluetoothManager::startPeripheral()
 void BluetoothManager::onCharacteristicWritten(
     const QLowEnergyCharacteristic &ch, const QByteArray &val)
 {
+    emit logMessage(QString("Char written: uuid=%1 val=%2")
+        .arg(ch.uuid().toString())
+        .arg(QString::fromUtf8(val.toHex())));
     if (ch.uuid() == NONCE_CHAR_UUID) {
         // Remote updated their nonce after a collision re-roll
         if (val.size() < 4) return;
@@ -233,6 +236,7 @@ void BluetoothManager::electHost(uint32_t remoteNonce, QLowEnergyService *remote
 
     connect(bridge, &HotspotBridge::hotspotStarted, this,
             [=](QString ssid, QString psk, QString ip) {
+            emit logMessage("hotspotStarted cb: ssid=" + ssid + " ip=" + ip);
 
                 if (ssid == "MAC") {
                     // First callback: got our P2P MAC — now start the group
@@ -252,7 +256,10 @@ void BluetoothManager::electHost(uint32_t remoteNonce, QLowEnergyService *remote
                 // Second callback: group is up, SSID/PSK/IP known
                 // Write full creds for reference (client already connecting by MAC)
                 QString payload = ssid + "::" + psk + "::" + ip + "::45678";
+                emit logMessage("Writing creds to peripheral char, size="
+                        + QString::number(payload.toUtf8().size()));
                 auto ch = m_negotiationService->characteristic(HOTSPOT_CHAR_UUID);
+                emit logMessage("Char valid: " + QString::number(ch.isValid()));
                 m_negotiationService->writeCharacteristic(ch, payload.toUtf8());
                 emit logMessage("P2P group up: " + ssid);
             });

@@ -154,14 +154,15 @@ Rectangle {
         }
 
         function onLogMessage(message) {
-            if      (message.indexOf("HOST")        !== -1) {
+            if      (message.indexOf("HOST")       !== -1) {
                 statusLabel.text = "HOST — creating hotspot"
                 statusLabel.parent.statusColor = "#1A4A1A"
-            } else if (message.indexOf("CLIENT")    !== -1) {
+            } else if (message.indexOf("CLIENT")   !== -1) {
                 statusLabel.text = "CLIENT — waiting for creds"
                 statusLabel.parent.statusColor = "#4A3A1A"
-            } else if (message.indexOf("Hotspot up") !== -1) {
-                statusLabel.text = "Hotspot up ✓"
+            } else if (message.indexOf("P2P group up") !== -1      // ← add
+                    || message.indexOf("Hotspot up")  !== -1) {
+                statusLabel.text = "P2P up ✓ — " + message.split(": ")[1]
                 statusLabel.parent.statusColor = "#1A5A1A"
             } else if (message.indexOf("collision") !== -1) {
                 statusLabel.text = "Nonce collision — retrying"
@@ -169,7 +170,6 @@ Rectangle {
             }
             appendLog(message, "#BBBBBB")
         }
-
         function onReadyToConnect(ip, port) {
             statusLabel.text = "TCP ready → " + ip + ":" + port
             statusLabel.parent.statusColor = "#1A5A1A"
