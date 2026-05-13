@@ -1,5 +1,6 @@
 #include "BluetoothManager.h"
 #include "HotspotBridge.h"
+#include <QTimer>
 
 const QBluetoothUuid BluetoothManager::SERVICE_UUID =
 QBluetoothUuid(QString("12345678-1234-1234-1234-123456789abc"));
@@ -91,21 +92,70 @@ void BluetoothManager::connectToDevice(const QString &address)
                     [=](QLowEnergyService::ServiceState state) {
                     if (state != QLowEnergyService::RemoteServiceDiscovered) return;
 
-            // ── Enable notifications on HOTSPOT_CHAR ──────────────────────
-            auto hotspotChar = svc->characteristic(HOTSPOT_CHAR_UUID);
+                    auto *pollTimer = new QTimer(this);
+pollTimer->setInterval(500);
+connect(pollTimer, &QTimer::timeout, this, [=]() {
+    auto hotspotChar = svc->characteristic(HOTSPOT_CHAR_UUID);
+    svc->readCharacteristic(hotspotChar);
+});
 
-            // Find the CCCD descriptor
-            auto cccd = hotspotChar.descriptor(
-                QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration
-            );
-            if (cccd.isValid()) {
-                svc->writeDescriptor(cccd,
-                    QByteArray::fromHex("0100")  // enable notifications
-                );
-                emit logMessage("Subscribed to HOTSPOT_CHAR notifications");
-            } else {
-                emit logMessage("WARNING: No CCCD on HOTSPOT_CHAR — polling instead");
-            }
+connect(svc, &QLowEnergyService::characteristicRead, this,
+        [=](const QLowEnergyCharacteristic &ch, const QByteArray &val) {
+            if (ch.uuid() != HOTSPOT_CHAR_UUID) return;
+            if (val.isEmpty()) return;
+
+            QStringList parts = QString::fromUtf8(val).split("::");
+            if (parts[0] != "READY" || parts.size() < 2) return;
+
+            pollTimer->stop();
+            pollTimer->deleteLater();
+
+            quint16 port = parts[1].toUInt();
+            emit logMessage("Host ready — starting P2P discovery");
+
+            auto *bridge = new HotspotBridge(this);
+            connect(bridge, &HotspotBridge::peerFound, this,
+                    [=, connected = std::make_shared<bool>(false)]
+                    (QString name, QString addr) {
+                        if (*connected) return;
+                        *connected = true;
+                        emit logMessage("Peer found: " + name + " — connecting");
+                        bridge->connectToPeer(addr);
+                    });
+            connect(bridge, &HotspotBridge::hotspotStarted, this,
+                    [=](QString, QString, QString ownerIp) {
+                        if (!m_transport) {
+                            m_transport = new TransportManager(this);
+                            connect(m_transport, &TransportManager::logMessage,
+                                    this, &BluetoothManager::logMessage);
+                            connect(m_transport, &TransportManager::connected, this,
+                                    [=]() { emit logMessage("TCP ready — connected to host"); });
+                            connect(m_transport, &TransportManager::textReceived,
+                                    this, &BluetoothManager::textReceived);
+                            m_transport->connectToHost(ownerIp, port);
+                        }
+                    });
+            bridge->discoverAndConnect();
+        });
+
+// Remove the CCCD subscription entirely — no longer needed
+pollTimer->start();
+emit logMessage("Polling host for READY signal...");
+            // ── Enable notifications on HOTSPOT_CHAR ──────────────────────
+            //auto hotspotChar = svc->characteristic(HOTSPOT_CHAR_UUID);
+
+            //// Find the CCCD descriptor
+            //auto cccd = hotspotChar.descriptor(
+            //    QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration
+            //);
+            //if (cccd.isValid()) {
+            //    svc->writeDescriptor(cccd,
+            //        QByteArray::fromHex("0100")  // enable notifications
+            //    );
+            //    emit logMessage("Subscribed to HOTSPOT_CHAR notifications");
+            //} else {
+            //    emit logMessage("WARNING: No CCCD on HOTSPOT_CHAR — polling instead");
+            //}
             // ─────────────────────────────────────────────────────────────
 
                     auto nonceChar = svc->characteristic(NONCE_CHAR_UUID);

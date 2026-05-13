@@ -25,6 +25,7 @@ public class HotspotManager {
     public native void onHotspotFailed(String reason);
     public native void onHotspotStopped();
     public native void onPeerFound(String deviceName, String deviceAddress);
+    private boolean m_connecting = false;
 
     public HotspotManager(Context context) {
         m_context    = context;
@@ -70,16 +71,23 @@ public class HotspotManager {
 
     // Called from C++ once the user/app picks which peer to connect to
     public void connectToPeer(String deviceAddress) {
+        if (m_connecting) {
+            Log.d(TAG, "Already connecting, ignoring");
+            return;
+        }
+        m_connecting = true;
+
         WifiP2pConfig config = new WifiP2pConfig();
         config.deviceAddress   = deviceAddress;
         config.wps.setup       = android.net.wifi.WpsInfo.PBC;
-        config.groupOwnerIntent = 0; // prefer not to be owner
+        config.groupOwnerIntent = 0;
 
         m_p2pManager.connect(m_channel, config, new ActionListener() {
             @Override public void onSuccess() {
                 Log.d(TAG, "connect() queued for " + deviceAddress);
             }
             @Override public void onFailure(int reason) {
+                m_connecting = false; // allow retry
                 onHotspotFailed("connect failed: " + reason);
             }
         });
@@ -87,6 +95,8 @@ public class HotspotManager {
 
     public void stopHotspot() {
         m_groupInfoRequested = false;
+    m_connecting = false;
+
         m_p2pManager.removeGroup(m_channel, new ActionListener() {
             @Override public void onSuccess() { Log.d(TAG, "Group removed"); }
             @Override public void onFailure(int r) { Log.w(TAG, "removeGroup: " + r); }
@@ -114,6 +124,7 @@ public class HotspotManager {
                 switch (action) {
                     case WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION:
                         // Peer list ready — request it
+
                         m_p2pManager.requestPeers(m_channel, peerList -> {
                             Collection<WifiP2pDevice> peers =
                                     peerList.getDeviceList();
