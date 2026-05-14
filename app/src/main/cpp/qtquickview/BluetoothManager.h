@@ -59,6 +59,7 @@ class BluetoothManager : public QObject
         }
 
         void electHost(uint32_t remoteNonce, QLowEnergyService *remoteSvc);
+        void teardownBle();
 
     signals:
         void deviceFound(QString name, QString address);

@@ -3,11 +3,11 @@
 #include <QTimer>
 
 const QBluetoothUuid BluetoothManager::SERVICE_UUID =
-QBluetoothUuid(QString("12345678-1234-1234-1234-123456789abc"));
+        QBluetoothUuid(QString("12345678-1234-1234-1234-123456789abc"));
 const QBluetoothUuid BluetoothManager::NONCE_CHAR_UUID =
-QBluetoothUuid(QString("12345678-1234-1234-1234-123456789ab1"));
+        QBluetoothUuid(QString("12345678-1234-1234-1234-123456789ab1"));
 const QBluetoothUuid BluetoothManager::HOTSPOT_CHAR_UUID =
-QBluetoothUuid(QString("12345678-1234-1234-1234-123456789ab2"));
+        QBluetoothUuid(QString("12345678-1234-1234-1234-123456789ab2"));
 
 BluetoothManager::BluetoothManager(QObject *parent) : QObject(parent)
 {
@@ -27,7 +27,7 @@ BluetoothManager::BluetoothManager(QObject *parent) : QObject(parent)
 void BluetoothManager::onDeviceDiscovered(const QBluetoothDeviceInfo &device)
 {
     if (!(device.coreConfigurations() &
-                QBluetoothDeviceInfo::LowEnergyCoreConfiguration))
+          QBluetoothDeviceInfo::LowEnergyCoreConfiguration))
         return;
 
     if (!device.serviceUuids().contains(BluetoothManager::SERVICE_UUID))
@@ -66,8 +66,8 @@ void BluetoothManager::connectToDevice(const QString &address)
 
     connect(controller, &QLowEnergyController::connected, this,
             [=]() {
-            emit logMessage("Connected. Discovering services...");
-            controller->discoverServices();
+                emit logMessage("Connected. Discovering services...");
+                controller->discoverServices();
             });
 
     //connect(controller, QOverload<QLowEnergyController::Error>::of(&QLowEnergyController::error), this,
@@ -83,88 +83,88 @@ void BluetoothManager::connectToDevice(const QString &address)
 
     connect(controller, &QLowEnergyController::serviceDiscovered, this,
             [=](const QBluetoothUuid &uuid) {
-            emit logMessage("Service: " + uuid.toString());
-            if (uuid != SERVICE_UUID) return;
-            auto *svc = controller->createServiceObject(uuid, this);
-            svc->discoverDetails();
+                emit logMessage("Service: " + uuid.toString());
+                if (uuid != SERVICE_UUID) return;
+                auto *svc = controller->createServiceObject(uuid, this);
+                svc->discoverDetails();
 
-            connect(svc, &QLowEnergyService::stateChanged, this,
-                    [=](QLowEnergyService::ServiceState state) {
-                    if (state != QLowEnergyService::RemoteServiceDiscovered) return;
+                connect(svc, &QLowEnergyService::stateChanged, this,
+                        [=](QLowEnergyService::ServiceState state) {
+                            if (state != QLowEnergyService::RemoteServiceDiscovered) return;
 
-                    auto *pollTimer = new QTimer(this);
-pollTimer->setInterval(500);
-connect(pollTimer, &QTimer::timeout, this, [=]() {
-    auto hotspotChar = svc->characteristic(HOTSPOT_CHAR_UUID);
-    svc->readCharacteristic(hotspotChar);
-});
+                            auto *pollTimer = new QTimer(this);
+                            pollTimer->setInterval(500);
+                            connect(pollTimer, &QTimer::timeout, this, [=]() {
+                                auto hotspotChar = svc->characteristic(HOTSPOT_CHAR_UUID);
+                                svc->readCharacteristic(hotspotChar);
+                            });
 
-connect(svc, &QLowEnergyService::characteristicRead, this,
-        [=](const QLowEnergyCharacteristic &ch, const QByteArray &val) {
-            if (ch.uuid() != HOTSPOT_CHAR_UUID) return;
-            if (val.isEmpty()) return;
+                            connect(svc, &QLowEnergyService::characteristicRead, this,
+                                    [=](const QLowEnergyCharacteristic &ch, const QByteArray &val) {
+                                        if (ch.uuid() != HOTSPOT_CHAR_UUID) return;
+                                        if (val.isEmpty()) return;
 
-            QStringList parts = QString::fromUtf8(val).split("::");
-            if (parts[0] != "READY" || parts.size() < 2) return;
+                                        QStringList parts = QString::fromUtf8(val).split("::");
+                                        if (parts[0] != "READY" || parts.size() < 2) return;
 
-            pollTimer->stop();
-            pollTimer->deleteLater();
+                                        pollTimer->stop();
+                                        pollTimer->deleteLater();
 
-            quint16 port = parts[1].toUInt();
-            emit logMessage("Host ready — starting P2P discovery");
+                                        quint16 port = parts[1].toUInt();
+                                        emit logMessage("Host ready — starting P2P discovery");
 
-            auto *bridge = new HotspotBridge(this);
-            connect(bridge, &HotspotBridge::peerFound, this,
-                    [=, connected = std::make_shared<bool>(false)]
-                    (QString name, QString addr) {
-                        if (*connected) return;
-                        *connected = true;
-                        emit logMessage("Peer found: " + name + " — connecting");
-                        bridge->connectToPeer(addr);
-                    });
-            connect(bridge, &HotspotBridge::hotspotStarted, this,
-                    [=](QString, QString, QString ownerIp) {
-                        if (!m_transport) {
-                            m_transport = new TransportManager(this);
-                            connect(m_transport, &TransportManager::logMessage,
-                                    this, &BluetoothManager::logMessage);
-                            connect(m_transport, &TransportManager::connected, this,
-                                    [=]() { emit logMessage("TCP ready — connected to host"); });
-                            connect(m_transport, &TransportManager::textReceived,
-                                    this, &BluetoothManager::textReceived);
-                            m_transport->connectToHost(ownerIp, port);
-                        }
-                    });
-            bridge->discoverAndConnect();
-        });
+                                        auto *bridge = new HotspotBridge(this);
+                                        connect(bridge, &HotspotBridge::peerFound, this,
+                                                [=, connected = std::make_shared<bool>(false)]
+                                                        (QString name, QString addr) {
+                                                    if (*connected) return;
+                                                    *connected = true;
+                                                    emit logMessage("Peer found: " + name + " — connecting");
+                                                    bridge->connectToPeer(addr);
+                                                });
+                                        connect(bridge, &HotspotBridge::hotspotStarted, this,
+                                                [=](QString, QString, QString ownerIp) {
+                                                    if (!m_transport) {
+                                                        m_transport = new TransportManager(this);
+                                                        connect(m_transport, &TransportManager::logMessage,
+                                                                this, &BluetoothManager::logMessage);
+                                                        connect(m_transport, &TransportManager::connected, this,
+                                                                [=]() { emit logMessage("TCP ready — connected to host"); });
+                                                        connect(m_transport, &TransportManager::textReceived,
+                                                                this, &BluetoothManager::textReceived);
+                                                        m_transport->connectToHost(ownerIp, port);
+                                                    }
+                                                });
+                                        bridge->discoverAndConnect();
+                                    });
 
 // Remove the CCCD subscription entirely — no longer needed
-pollTimer->start();
-emit logMessage("Polling host for READY signal...");
-            // ── Enable notifications on HOTSPOT_CHAR ──────────────────────
-            //auto hotspotChar = svc->characteristic(HOTSPOT_CHAR_UUID);
+                            pollTimer->start();
+                            emit logMessage("Polling host for READY signal...");
+                            // ── Enable notifications on HOTSPOT_CHAR ──────────────────────
+                            //auto hotspotChar = svc->characteristic(HOTSPOT_CHAR_UUID);
 
-            //// Find the CCCD descriptor
-            //auto cccd = hotspotChar.descriptor(
-            //    QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration
-            //);
-            //if (cccd.isValid()) {
-            //    svc->writeDescriptor(cccd,
-            //        QByteArray::fromHex("0100")  // enable notifications
-            //    );
-            //    emit logMessage("Subscribed to HOTSPOT_CHAR notifications");
-            //} else {
-            //    emit logMessage("WARNING: No CCCD on HOTSPOT_CHAR — polling instead");
-            //}
-            // ─────────────────────────────────────────────────────────────
+                            //// Find the CCCD descriptor
+                            //auto cccd = hotspotChar.descriptor(
+                            //    QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration
+                            //);
+                            //if (cccd.isValid()) {
+                            //    svc->writeDescriptor(cccd,
+                            //        QByteArray::fromHex("0100")  // enable notifications
+                            //    );
+                            //    emit logMessage("Subscribed to HOTSPOT_CHAR notifications");
+                            //} else {
+                            //    emit logMessage("WARNING: No CCCD on HOTSPOT_CHAR — polling instead");
+                            //}
+                            // ─────────────────────────────────────────────────────────────
 
-                    auto nonceChar = svc->characteristic(NONCE_CHAR_UUID);
-                    QByteArray val = nonceChar.value();
-                    uint32_t remoteNonce = qFromBigEndian<uint32_t>(
-                            reinterpret_cast<const uchar*>(val.constData())
+                            auto nonceChar = svc->characteristic(NONCE_CHAR_UUID);
+                            QByteArray val = nonceChar.value();
+                            uint32_t remoteNonce = qFromBigEndian<uint32_t>(
+                                    reinterpret_cast<const uchar*>(val.constData())
                             );
-                    electHost(remoteNonce, svc);
-                    });
+                            electHost(remoteNonce, svc);
+                        });
             });
 
 
@@ -181,7 +181,7 @@ void BluetoothManager::startPeripheral()
     nonceChar.setUuid(NONCE_CHAR_UUID);
     nonceChar.setProperties(
             QLowEnergyCharacteristic::Read | QLowEnergyCharacteristic::Write
-            );
+    );
     // Pack nonce as 4 bytes
     QByteArray nonceBytes(4, 0);
     qToBigEndian(m_localNonce, nonceBytes.data());
@@ -192,19 +192,19 @@ void BluetoothManager::startPeripheral()
     //hotspotChar.setProperties(QLowEnergyCharacteristic::Read
     //        | QLowEnergyCharacteristic::Write);
     //hotspotChar.setValue(QByteArray()); // filled in later by host
-                                        //
+    //
     QLowEnergyCharacteristicData hotspotChar;
     hotspotChar.setUuid(HOTSPOT_CHAR_UUID);
     hotspotChar.setProperties(
             QLowEnergyCharacteristic::Read  |
             QLowEnergyCharacteristic::Write |
             QLowEnergyCharacteristic::Notify   // ← must be here
-            );
+    );
 
     QLowEnergyDescriptorData cccd(
             QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration,
             QByteArray(2, 0)
-            );
+    );
     //cccd.setReadConstraints(QBluetooth::AttAccessConstraint(0));   // open read
     //cccd.setWriteConstraints(QBluetooth::AttAccessConstraint(0));  // open write
     hotspotChar.addDescriptor(cccd);     // ← must be here
@@ -234,16 +234,16 @@ void BluetoothManager::startPeripheral()
 }
 
 void BluetoothManager::onCharacteristicWritten(
-    const QLowEnergyCharacteristic &ch, const QByteArray &val)
+        const QLowEnergyCharacteristic &ch, const QByteArray &val)
 {
     emit logMessage(QString("Char written: uuid=%1 val=%2")
-        .arg(ch.uuid().toString())
-        .arg(QString::fromUtf8(val.toHex())));
+                            .arg(ch.uuid().toString())
+                            .arg(QString::fromUtf8(val.toHex())));
     if (ch.uuid() == NONCE_CHAR_UUID) {
         // Remote updated their nonce after a collision re-roll
         if (val.size() < 4) return;
         uint32_t remoteNonce = qFromBigEndian<uint32_t>(
-            reinterpret_cast<const uchar*>(val.constData())
+                reinterpret_cast<const uchar*>(val.constData())
         );
         emit logMessage("Peer re-rolled nonce: " + QString::number(remoteNonce));
         // Re-elect — but we need the remoteSvc for this.
@@ -263,7 +263,7 @@ void BluetoothManager::onCharacteristicWritten(
 void BluetoothManager::electHost(uint32_t remoteNonce, QLowEnergyService *remoteSvc)
 {
     emit logMessage(QString("electHost called: local=%1 remote=%2")//done=%3")
-        .arg(m_localNonce).arg(remoteNonce));//.arg(m_electionDone));
+                            .arg(m_localNonce).arg(remoteNonce));//.arg(m_electionDone));
 
     if (remoteSvc) m_remoteSvc = remoteSvc; // cache it for onCharacteristicWritten
 
@@ -281,7 +281,7 @@ void BluetoothManager::electHost(uint32_t remoteNonce, QLowEnergyService *remote
 
     m_isHost = (m_localNonce > remoteNonce);
     emit logMessage(m_isHost ? "I am HOST → will create hotspot"
-            : "I am CLIENT → will connect to hotspot");
+                             : "I am CLIENT → will connect to hotspot");
 
     if (m_isHost) {
         auto *bridge = new HotspotBridge(this);
@@ -346,16 +346,20 @@ void BluetoothManager::electHost(uint32_t remoteNonce, QLowEnergyService *remote
                     bridge->discoverAndConnect();
                 });
 
-                return;
-            }
+        return;
+    }
+}
 
+void BluetoothManager::teardownBle()
+{
+    if (m_peripheralController) {
+        m_peripheralController->stopAdvertising();
+        m_peripheralController->disconnectFromDevice();
+        m_peripheralController->deleteLater();
+        m_peripheralController = nullptr;
+    }
+    if (m_discoveryAgent->isActive())
+        m_discoveryAgent->stop();
 
-            //// Full creds payload (optional fallback)
-            //if (parts.size() >= 4) {
-            //    QString ip   = parts[2];
-            //    QString port = parts[3];
-            //    emit readyToConnect(ip, port.toUInt());
-            //}
-        //});
-    //}
+    emit logMessage("BLE shut down");
 }
