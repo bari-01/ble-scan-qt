@@ -4,7 +4,7 @@
     android:id="@+id/qmlFrame"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#CCCCCC"
     tools:context=".MainActivity">
 </FrameLayout>
-    <!--android:theme="@android:style/Theme.DeviceDefault.NoActionBar"-->
+    <!--android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+     android:background="#CCCCCC"-->
