@@ -1,10 +1,15 @@
 package io.bari.qshare
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import io.bari.qshare.databinding.ActivityMainBinding
 import org.qtproject.example.qtquickview.QmlModule.Main
 import org.qtproject.qt.android.QtQmlStatus
@@ -14,6 +19,7 @@ import org.qtproject.qt.android.QtQuickViewContent
 
 class MainActivity : AppCompatActivity(), QtQmlStatusChangeListener {
     private val TAG = "QshareMainActivity"
+    private val PERM_REQUEST_CODE = 1001
     private lateinit var binding: ActivityMainBinding
     private val qmlContent: Main = Main()
 
@@ -34,6 +40,38 @@ class MainActivity : AppCompatActivity(), QtQmlStatusChangeListener {
 
     override fun onStart() {
         super.onStart()
+        requestNeededPermissions()
+    }
+
+    private fun requestNeededPermissions() {
+        val needed = mutableListOf<String>()
+
+        // API 33+ needs NEARBY_WIFI_DEVICES explicitly
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                needed.add(Manifest.permission.NEARBY_WIFI_DEVICES)
+            }
+        }
+
+        // Still need FINE_LOCATION on some devices/API levels for hotspot
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            needed.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+
+        // CHANGE_NETWORK_STATE for connectToHotspot
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CHANGE_NETWORK_STATE)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            needed.add(Manifest.permission.CHANGE_NETWORK_STATE)
+        }
+
+        if (needed.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, needed.toTypedArray(), PERM_REQUEST_CODE)
+        }
     }
 
     override fun onStatusChanged(status: QtQmlStatus?, content: QtQuickViewContent?) {

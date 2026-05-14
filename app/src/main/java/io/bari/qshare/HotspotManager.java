@@ -1,20 +1,15 @@
 package io.bari.qshare;
 
-import android.Manifest;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.pm.PackageManager;
 import android.net.NetworkInfo;
 import android.net.wifi.p2p.*;
 import android.net.wifi.p2p.WifiP2pManager.*;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
-
-import androidx.core.app.ActivityCompat;
-
 import java.util.Collection;
 
 public class HotspotManager {
@@ -43,9 +38,6 @@ public class HotspotManager {
     // ── HOST: create the group ────────────────────────────────────────────────
     public void startHotspot() {
         registerReceiver();
-        if (ActivityCompat.checkSelfPermission(m_context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED || ActivityCompat.checkSelfPermission(m_context, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
-            return;
-        }
         m_p2pManager.createGroup(m_channel, new ActionListener() {
             @Override public void onSuccess() {
                 Log.d(TAG, "createGroup queued");
@@ -66,9 +58,6 @@ public class HotspotManager {
     // ── CLIENT: discover peers then connect ───────────────────────────────────
     public void discoverAndConnect() {
         registerReceiver();
-        if (ActivityCompat.checkSelfPermission(m_context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED || ActivityCompat.checkSelfPermission(m_context, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
-            return;
-        }
         m_p2pManager.discoverPeers(m_channel, new ActionListener() {
             @Override public void onSuccess() {
                 Log.d(TAG, "discoverPeers started");
@@ -83,6 +72,7 @@ public class HotspotManager {
     // Called from C++ once the user/app picks which peer to connect to
     public void connectToPeer(String deviceAddress) {
         if (m_connecting) {
+            Log.d(TAG, "Already connecting, ignoring");
             return;
         }
         m_connecting = true;
@@ -92,9 +82,6 @@ public class HotspotManager {
         config.wps.setup       = android.net.wifi.WpsInfo.PBC;
         config.groupOwnerIntent = 0;
 
-        if (ActivityCompat.checkSelfPermission(m_context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED || ActivityCompat.checkSelfPermission(m_context, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
-            return;
-        }
         m_p2pManager.connect(m_channel, config, new ActionListener() {
             @Override public void onSuccess() {
                 Log.d(TAG, "connect() queued for " + deviceAddress);
@@ -108,7 +95,7 @@ public class HotspotManager {
 
     public void stopHotspot() {
         m_groupInfoRequested = false;
-        m_connecting = false;
+    m_connecting = false;
 
         m_p2pManager.removeGroup(m_channel, new ActionListener() {
             @Override public void onSuccess() { Log.d(TAG, "Group removed"); }
@@ -138,16 +125,6 @@ public class HotspotManager {
                     case WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION:
                         // Peer list ready — request it
 
-                        if (ActivityCompat.checkSelfPermission(m_context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED || ActivityCompat.checkSelfPermission(m_context, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
-                            // TODO: Consider calling
-                            //    ActivityCompat#requestPermissions
-                            // here to request the missing permissions, and then overriding
-                            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                            //                                          int[] grantResults)
-                            // to handle the case where the user grants the permission. See the documentation
-                            // for ActivityCompat#requestPermissions for more details.
-                            return;
-                        }
                         m_p2pManager.requestPeers(m_channel, peerList -> {
                             Collection<WifiP2pDevice> peers =
                                     peerList.getDeviceList();
@@ -190,9 +167,6 @@ public class HotspotManager {
         if (m_groupInfoRequested) return;
         m_groupInfoRequested = true;
 
-        if (ActivityCompat.checkSelfPermission(m_context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED || ActivityCompat.checkSelfPermission(m_context, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
-            return;
-        }
         m_p2pManager.requestGroupInfo(m_channel, group -> {
             if (group == null) {
                 m_groupInfoRequested = false;
