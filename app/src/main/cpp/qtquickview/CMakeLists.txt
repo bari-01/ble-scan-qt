@@ -10,9 +10,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(Qt6 6.8 REQUIRED COMPONENTS
         Quick
         Core
-    Gui
-    Qml
-    Bluetooth
+        Gui
+        Qml
+        Bluetooth
 )
 
 # Force CMake to look at the host system path ignoring the Android toolchain root.
@@ -36,7 +36,7 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS
 qt_standard_project_setup(REQUIRES 6.8)
 
 qt_add_executable(qtquickview
-    main.cpp
+        main.cpp
         BluetoothManager.cpp
         BluetoothManager.h
         HotspotBridge.cpp
@@ -51,12 +51,12 @@ qt_add_executable(qtquickview
 #)
 
 qt_add_qml_module(qtquickview
-    URI qmlModule
-    QML_FILES Main.qml
+        URI qmlModule
+        QML_FILES Main.qml
 )
 
 target_link_libraries(qtquickview
-    PRIVATE Qt6::Quick
+        PRIVATE Qt6::Quick
         Qt6::Core
         Qt6::Gui
         Qt6::Qml
@@ -68,24 +68,16 @@ target_link_libraries(qtquickview
 
 if(CMAKE_EXPORT_COMPILE_COMMANDS)
     add_custom_command(TARGET qtquickview POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_BINARY_DIR}/compile_commands.json"
             "${CMAKE_CURRENT_SOURCE_DIR}/compile_commands.json"
-        COMMENT "Copying compile_commands.json to source directory"
-        VERBATIM
+            COMMENT "Copying compile_commands.json to source directory"
+            VERBATIM
     )
 endif()
 
 install(TARGETS qtquickview
-    BUNDLE DESTINATION .
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        BUNDLE DESTINATION .
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
-
-
-
-
-
-
-
-
