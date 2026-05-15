@@ -6,12 +6,20 @@
 #include <QBluetoothPermission>
 
 #include "BluetoothManager.h"
+#include "TransportManager.h"
 
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
 
     BluetoothManager manager;
+    TransportManager transportManager;
+
+    QObject::connect(&manager, &BluetoothManager::p2pNegotiationComplete,
+                     &transportManager, &TransportManager::onP2pNegotiated);
+    
+    QObject::connect(&transportManager, &TransportManager::connected,
+                     &manager, &BluetoothManager::disconnectBle);
 
     qmlRegisterSingletonInstance(
             "qmlModule",
@@ -19,16 +27,13 @@ int main(int argc, char *argv[])
             "Bluetooth",
             &manager
     );
-
-    QBluetoothPermission permission;
-
-    app.requestPermission(permission,
-                          [](const QPermission &p)
-                          {
-                              if (p.status() == Qt::PermissionStatus::Granted)
-                                  qDebug() << "Bluetooth permission granted";
-                          });
-    //engine.rootContext()->setContextProperty("Transport", transportManager);
+    
+    qmlRegisterSingletonInstance(
+            "qmlModule",
+            1, 0,
+            "Transport",
+            &transportManager
+    );
 
     return app.exec();
 }

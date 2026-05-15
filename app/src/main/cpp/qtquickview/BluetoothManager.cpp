@@ -1,5 +1,4 @@
 #include "BluetoothManager.h"
-#include "HotspotBridge.h"
 #include <QTimer>
 
 const QBluetoothUuid BluetoothManager::SERVICE_UUID =
@@ -62,12 +61,12 @@ void BluetoothManager::connectToDevice(const QString &address)
     QBluetoothDeviceInfo device = m_deviceMap[address];
 
     emit logMessage("Connecting...");
-    QLowEnergyController *controller = QLowEnergyController::createCentral(device, this);
+    m_centralController = QLowEnergyController::createCentral(device, this);
 
-    connect(controller, &QLowEnergyController::connected, this,
+    connect(m_centralController, &QLowEnergyController::connected, this,
             [=]() {
             emit logMessage("Connected. Discovering services...");
-            controller->discoverServices();
+            m_centralController->discoverServices();
             });
 
     //connect(controller, QOverload<QLowEnergyController::Error>::of(&QLowEnergyController::error), this,
@@ -78,14 +77,14 @@ void BluetoothManager::connectToDevice(const QString &address)
     //        }
     //);
 
-    connect(controller, &QLowEnergyController::disconnected, this,
+    connect(m_centralController, &QLowEnergyController::disconnected, this,
             [=]() { emit logMessage("Disconnected"); });
 
-    connect(controller, &QLowEnergyController::serviceDiscovered, this,
+    connect(m_centralController, &QLowEnergyController::serviceDiscovered, this,
             [=](const QBluetoothUuid &uuid) {
             emit logMessage("Service: " + uuid.toString());
             if (uuid != SERVICE_UUID) return;
-            auto *svc = controller->createServiceObject(uuid, this);
+            auto *svc = m_centralController->createServiceObject(uuid, this);
             svc->discoverDetails();
 
             connect(svc, &QLowEnergyService::stateChanged, this,
@@ -111,31 +110,9 @@ connect(svc, &QLowEnergyService::characteristicRead, this,
             pollTimer->deleteLater();
 
             quint16 port = parts[1].toUInt();
-            emit logMessage("Host ready — starting P2P discovery");
+            emit logMessage("Host ready — negotiation complete");
 
-            auto *bridge = new HotspotBridge(this);
-            connect(bridge, &HotspotBridge::peerFound, this,
-                    [=, connected = std::make_shared<bool>(false)]
-                    (QString name, QString addr) {
-                        if (*connected) return;
-                        *connected = true;
-                        emit logMessage("Peer found: " + name + " — connecting");
-                        bridge->connectToPeer(addr);
-                    });
-            connect(bridge, &HotspotBridge::hotspotStarted, this,
-                    [=](QString, QString, QString ownerIp) {
-                        if (!m_transport) {
-                            m_transport = new TransportManager(this);
-                            connect(m_transport, &TransportManager::logMessage,
-                                    this, &BluetoothManager::logMessage);
-                            connect(m_transport, &TransportManager::connected, this,
-                                    [=]() { emit logMessage("TCP ready — connected to host"); });
-                            connect(m_transport, &TransportManager::textReceived,
-                                    this, &BluetoothManager::textReceived);
-                            m_transport->connectToHost(ownerIp, port);
-                        }
-                    });
-            bridge->discoverAndConnect();
+            emit p2pNegotiationComplete(m_isHost, port);
         });
 
 // Remove the CCCD subscription entirely — no longer needed
@@ -168,11 +145,29 @@ emit logMessage("Polling host for READY signal...");
             });
 
 
-    controller->connectToDevice();
+    m_centralController->connectToDevice();
+}
+
+void BluetoothManager::disconnectBle()
+{
+    if (m_centralController && m_centralController->state() != QLowEnergyController::UnconnectedState) {
+        emit logMessage("Disconnecting Central BLE");
+        m_centralController->disconnectFromDevice();
+    }
+    if (m_peripheralController && m_peripheralController->state() != QLowEnergyController::UnconnectedState) {
+        emit logMessage("Disconnecting Peripheral BLE");
+        m_peripheralController->disconnectFromDevice();
+    }
 }
 
 void BluetoothManager::startPeripheral()
 {
+    if (m_peripheralController) {
+        m_peripheralController->stopAdvertising();
+        m_peripheralController->deleteLater();
+        m_peripheralController = nullptr;
+    }
+
     // Generate nonce
     m_localNonce = QRandomGenerator::global()->generate(); // uint32
 
@@ -284,28 +279,14 @@ void BluetoothManager::electHost(uint32_t remoteNonce, QLowEnergyService *remote
             : "I am CLIENT → will connect to hotspot");
 
     if (m_isHost) {
-        auto *bridge = new HotspotBridge(this);
-        connect(bridge, &HotspotBridge::hotspotStarted, this,
-                [=](QString ssid, QString psk, QString ip) {
-                    if (!m_transport) {
-                        // Write "READY" to BLE — client just needs to know
-                        // the host's group is up and which port to use
-                        QString payload = "READY::45678";
-                        auto ch = m_negotiationService->characteristic(HOTSPOT_CHAR_UUID);
-                        m_negotiationService->writeCharacteristic(ch, payload.toUtf8());
-                        emit logMessage("P2P group up: " + ssid);
-
-                        m_transport = new TransportManager(this);
-                        connect(m_transport, &TransportManager::logMessage,
-                                this, &BluetoothManager::logMessage);
-                        connect(m_transport, &TransportManager::connected, this,
-                                [=]() { emit logMessage("TCP ready — peer connected"); });
-                        connect(m_transport, &TransportManager::textReceived,
-                                this, &BluetoothManager::textReceived);
-                        m_transport->startServer(45678);
-                    }
-                });
-        bridge->startHotspot();
+        // We just need to emit p2pNegotiationComplete so the TransportManager can start the backend.
+        // We will start the backend at the requested port (45678).
+        // Before emitting, write READY to BLE for client.
+        QString payload = "READY::45678";
+        auto ch = m_negotiationService->characteristic(HOTSPOT_CHAR_UUID);
+        m_negotiationService->writeCharacteristic(ch, payload.toUtf8());
+        
+        emit p2pNegotiationComplete(true, 45678);
     } else {
         connect(remoteSvc, &QLowEnergyService::characteristicChanged, this,
                 [=](const QLowEnergyCharacteristic &ch, const QByteArray &val) {
@@ -314,36 +295,9 @@ void BluetoothManager::electHost(uint32_t remoteNonce, QLowEnergyService *remote
                     if (parts[0] != "READY" || parts.size() < 2) return;
 
                     quint16 port = parts[1].toUInt();
-                    emit logMessage("Host ready — starting P2P discovery");
+                    emit logMessage("Host ready — negotiation complete");
 
-                    auto *bridge = new HotspotBridge(this);
-
-                    // When a peer is found, connect to it
-                    connect(bridge, &HotspotBridge::peerFound, this,
-                            [=](QString name, QString addr) {
-                                emit logMessage("P2P peer found: " + name);
-                                // Match by the BLE advertised name
-                                if (name == "P2PNode" || !name.isEmpty()) {
-                                    bridge->connectToPeer(addr);
-                                }
-                            });
-
-                    // When P2P is connected, open TCP
-                    connect(bridge, &HotspotBridge::hotspotStarted, this,
-                            [=](QString, QString, QString ownerIp) {
-                                m_transport = new TransportManager(this);
-                                connect(m_transport, &TransportManager::logMessage,
-                                        this, &BluetoothManager::logMessage);
-                                connect(m_transport, &TransportManager::connected,
-                                        this, [=]() {
-                                            emit logMessage("TCP ready — connected to host");
-                                        });
-                                connect(m_transport, &TransportManager::textReceived,
-                                        this, &BluetoothManager::textReceived);
-                                m_transport->connectToHost(ownerIp, port);
-                            });
-
-                    bridge->discoverAndConnect();
+                    emit p2pNegotiationComplete(false, port);
                 });
 
                 return;

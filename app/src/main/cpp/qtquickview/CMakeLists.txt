@@ -39,8 +39,8 @@ qt_add_executable(qtquickview
         main.cpp
         BluetoothManager.cpp
         BluetoothManager.h
-        HotspotBridge.cpp
-        HotspotBridge.h
+        P2pBridge.cpp
+        P2pBridge.h
         TransportManager.cpp
         TransportManager.h
 )

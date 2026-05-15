@@ -27,7 +27,6 @@ class BluetoothManager : public QObject
         QList<QBluetoothDeviceInfo> m_devices;
         quint32 m_localNonce;
         bool m_isHost = false;
-        TransportManager *m_transport = nullptr;
 
         QLowEnergyAdvertisingData m_advData;
         QLowEnergyController *m_peripheralController = nullptr;
@@ -48,15 +47,7 @@ class BluetoothManager : public QObject
 
         Q_INVOKABLE void onCharacteristicWritten(const QLowEnergyCharacteristic &ch, const QByteArray &val0);
 
-        Q_INVOKABLE void sendText(const QString &text) {
-            if (m_transport) m_transport->sendText(text);
-            else emit logMessage("sendText: no transport yet");
-        }
-
-        Q_INVOKABLE void sendFile(const QString &path) {
-            if (m_transport) m_transport->sendFile(path);
-            else emit logMessage("sendFile: no transport yet");
-        }
+        // Removed sendText and sendFile from BluetoothManager
 
         void electHost(uint32_t remoteNonce, QLowEnergyService *remoteSvc);
 
@@ -64,11 +55,15 @@ class BluetoothManager : public QObject
         void deviceFound(QString name, QString address);
         void logMessage(QString message);
         void readyToConnect(QString ip, quint16 port); //
+        void p2pNegotiationComplete(bool isHost, quint16 port);
  
         void textReceived(QString text);
         void fileCompleted(QString path);
         void transferProgress(qint64 sent, qint64 total);
         void tcpConnected();
-        //private:
+    public slots:
+        Q_INVOKABLE void disconnectBle();
+    private:
+        QLowEnergyController *m_centralController = nullptr;
 
 };

@@ -12,8 +12,8 @@ import android.os.Looper;
 import android.util.Log;
 import java.util.Collection;
 
-public class HotspotManager {
-    private static final String TAG = "HotspotManager";
+public class P2pManager {
+    private static final String TAG = "P2pManager";
 
     private final Context          m_context;
     private WifiP2pManager         m_p2pManager;
@@ -21,13 +21,13 @@ public class HotspotManager {
     private BroadcastReceiver      m_receiver;
     private boolean                m_groupInfoRequested = false;
 
-    public native void onHotspotStarted(String ssid, String psk, String ip);
-    public native void onHotspotFailed(String reason);
-    public native void onHotspotStopped();
+    public native void onP2pStarted(String ssid, String psk, String ip);
+    public native void onP2pFailed(String reason);
+    public native void onP2pStopped();
     public native void onPeerFound(String deviceName, String deviceAddress);
     private boolean m_connecting = false;
 
-    public HotspotManager(Context context) {
+    public P2pManager(Context context) {
         m_context    = context;
         m_p2pManager = (WifiP2pManager)
                 context.getSystemService(Context.WIFI_P2P_SERVICE);
@@ -36,7 +36,7 @@ public class HotspotManager {
     }
 
     // ── HOST: create the group ────────────────────────────────────────────────
-    public void startHotspot() {
+    public void startP2pHost() {
         registerReceiver();
         m_p2pManager.createGroup(m_channel, new ActionListener() {
             @Override public void onSuccess() {
@@ -49,7 +49,7 @@ public class HotspotManager {
                     Log.w(TAG, "createGroup busy — using existing group");
                     requestGroupInfo();
                 } else {
-                    onHotspotFailed("createGroup failed: " + reason);
+                    onP2pFailed("createGroup failed: " + reason);
                 }
             }
         });
@@ -63,7 +63,7 @@ public class HotspotManager {
                 Log.d(TAG, "discoverPeers started");
             }
             @Override public void onFailure(int reason) {
-                onHotspotFailed("discoverPeers failed: " + reason);
+                onP2pFailed("discoverPeers failed: " + reason);
             }
         });
         // Results arrive in broadcast receiver → WIFI_P2P_PEERS_CHANGED_ACTION
@@ -88,12 +88,12 @@ public class HotspotManager {
             }
             @Override public void onFailure(int reason) {
                 m_connecting = false; // allow retry
-                onHotspotFailed("connect failed: " + reason);
+                onP2pFailed("connect failed: " + reason);
             }
         });
     }
 
-    public void stopHotspot() {
+    public void stopP2p() {
         m_groupInfoRequested = false;
     m_connecting = false;
 
@@ -102,7 +102,7 @@ public class HotspotManager {
             @Override public void onFailure(int r) { Log.w(TAG, "removeGroup: " + r); }
         });
         unregisterReceiver();
-        onHotspotStopped();
+        onP2pStopped();
     }
 
     // ── Broadcast receiver ────────────────────────────────────────────────────
@@ -181,13 +181,13 @@ public class HotspotManager {
             Log.d(TAG, "Group: owner=" + isOwner + " ssid=" + ssid);
 
             if (isOwner) {
-                onHotspotStarted(ssid, psk, "192.168.49.1");
+                onP2pStarted(ssid, psk, "192.168.49.1");
             } else {
                 m_p2pManager.requestConnectionInfo(m_channel, info -> {
                     String ip = info.groupOwnerAddress != null
                             ? info.groupOwnerAddress.getHostAddress()
                             : "192.168.49.1";
-                    onHotspotStarted("CLIENT_CONNECTED", "", ip);
+                    onP2pStarted("CLIENT_CONNECTED", "", ip);
                 });
             }
         });

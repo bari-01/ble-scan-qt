@@ -1,4 +1,5 @@
 #include "TransportManager.h"
+#include "P2pBridge.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QFileInfo>
@@ -7,7 +8,57 @@
 #include <QHostAddress>
 #include <QCoreApplication>
 
-TransportManager::TransportManager(QObject *parent) : QObject(parent) {}
+TransportManager::TransportManager(QObject *parent) : QObject(parent) {
+    m_p2pBridge = new P2pBridge(this);
+    connect(m_p2pBridge, &P2pBridge::p2pStarted, this, &TransportManager::onP2pStarted);
+    connect(m_p2pBridge, &P2pBridge::p2pFailed, this, &TransportManager::onP2pFailed);
+    connect(m_p2pBridge, &P2pBridge::peerFound, this, &TransportManager::onPeerFound);
+}
+
+// ── P2P Backend ──────────────────────────────────────────────────────────────
+
+void TransportManager::onP2pNegotiated(bool isHost, quint16 port) {
+    m_negotiatedPort = port;
+    emit logMessage(QString("P2P Negotiated. isHost: %1, port: %2").arg(isHost).arg(port));
+    emit p2pStatus("Negotiated");
+
+    if (isHost) {
+        emit logMessage("I am HOST → will create P2P group");
+        m_p2pBridge->startP2pHost();
+    } else {
+        emit logMessage("I am CLIENT → starting P2P discovery");
+        m_p2pBridge->discoverAndConnect();
+    }
+}
+
+void TransportManager::onP2pStarted(QString ssid, QString psk, QString ip) {
+    emit logMessage("P2P group up: " + ssid + " IP: " + ip);
+    emit p2pStatus("Started");
+    
+    // If we're host, `ip` may be the owner IP, but we can also just listen on Any
+    // Wait, if we are host, we start the server. If we are client, we connect to the owner IP.
+    // The bridge tells us our IP or the group owner IP.
+    // If `ssid` contains "CLIENT_CONNECTED" or something, it means we are client.
+    if (ssid == "CLIENT_CONNECTED") {
+        connectToHost(ip, m_negotiatedPort);
+    } else {
+        startServer(m_negotiatedPort);
+    }
+}
+
+void TransportManager::onP2pFailed(QString reason) {
+    emit logMessage("P2P failed: " + reason);
+    emit p2pStatus("Failed");
+}
+
+void TransportManager::onPeerFound(QString name, QString address) {
+    emit logMessage("P2P peer found: " + name + " [" + address + "]");
+    // Match by the BLE advertised name or just connect to whatever we find for now
+    if (name == "P2PNode" || !name.isEmpty()) {
+        emit logMessage("Connecting to P2P peer...");
+        m_p2pBridge->connectToPeer(address);
+    }
+}
 
 // ── Server (HOST) ─────────────────────────────────────────────────────────────
 
@@ -217,6 +268,20 @@ void TransportManager::onSocketDisconnected() {
     m_socket->deleteLater();
     m_socket = nullptr;
     m_buffer.clear();
+    
+    // Stop P2P when peer disconnects
+    if (m_p2pBridge) {
+        m_p2pBridge->stopP2p();
+    }
+}
+
+void TransportManager::disconnectAll() {
+    if (m_socket) {
+        m_socket->disconnectFromHost();
+    }
+    if (m_p2pBridge) {
+        m_p2pBridge->stopP2p();
+    }
 }
 
 bool TransportManager::isConnected() const {

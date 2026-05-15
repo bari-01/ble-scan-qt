@@ -1,14 +1,14 @@
-// HotspotBridge.cpp
-#include "HotspotBridge.h"
+// P2pBridge.cpp
+#include "P2pBridge.h"
 #include <QDebug>
 
 #ifdef Q_OS_ANDROID
 #include <QJniEnvironment>
 #endif
 
-HotspotBridge *HotspotBridge::s_instance = nullptr;
+P2pBridge *P2pBridge::s_instance = nullptr;
 
-HotspotBridge::HotspotBridge(QObject *parent) : QObject(parent) {
+P2pBridge::P2pBridge(QObject *parent) : QObject(parent) {
     s_instance = this;
 
 #ifdef Q_OS_ANDROID
@@ -21,71 +21,76 @@ HotspotBridge::HotspotBridge(QObject *parent) : QObject(parent) {
     );
 
     m_javaObj = QJniObject(
-        "io/bari/qshare/HotspotManager",
+        "io/bari/qshare/P2pManager",
         "(Landroid/content/Context;)V",
         activity.object<jobject>()
     );
 #endif
 }
 
-HotspotBridge *HotspotBridge::instance() { return s_instance; }
+P2pBridge *P2pBridge::instance() { return s_instance; }
 
-void HotspotBridge::startHotspot() {
+void P2pBridge::startP2pHost() {
 #ifdef Q_OS_ANDROID
-    m_javaObj.callMethod<void>("startHotspot");
+    m_javaObj.callMethod<void>("startP2pHost");
+#elif defined(Q_OS_LINUX)
+    system("wpa_cli p2p_group_add");
+    emit p2pStarted("DIRECT-linux", "password", "192.168.4.1");
 #else
-    emit hotspotFailed("Not on Android");
+    emit p2pFailed("Not on Android");
 #endif
 }
 
-void HotspotBridge::stopHotspot() {
+void P2pBridge::stopP2p() {
 #ifdef Q_OS_ANDROID
-    m_javaObj.callMethod<void>("stopHotspot");
+    m_javaObj.callMethod<void>("stopP2p");
 #endif
 }
 
-void HotspotBridge::connectToHotspot(const QString &ssid, const QString &psk) {
+void P2pBridge::connectToP2pClient(const QString &ssid, const QString &psk) {
 #ifdef Q_OS_ANDROID
     m_javaObj.callMethod<void>(
-        "connectToHotspot",
+        "connectToP2pClient",
         "(Ljava/lang/String;Ljava/lang/String;)V",
         QJniObject::fromString(ssid).object<jstring>(),
         QJniObject::fromString(psk).object<jstring>()
     );
+#elif defined(Q_OS_LINUX)
+    system("wpa_cli p2p_connect 00:00:00:00:00:00 pbc");
 #else
     Q_UNUSED(ssid); Q_UNUSED(psk);
-    emit hotspotFailed("Not on Android");
+    emit p2pFailed("Not on Android");
 #endif
 }
 
-void HotspotBridge::getP2pMacAddress()
+void P2pBridge::getP2pMacAddress()
 {
 #ifdef Q_OS_ANDROID
     m_javaObj.callMethod<void>("getP2pMacAddress");
 #else
-    emit hotspotFailed("Not on Android");
+    emit p2pFailed("Not on Android");
 #endif
 }
 
 // ── JNI callbacks (Java → C++) ───────────────────────────────────────────────
 
-void HotspotBridge::handleHotspotStarted(const QString &ssid,
+void P2pBridge::handleP2pStarted(const QString &ssid,
                                          const QString &psk,
                                          const QString &ip) {
-    emit hotspotStarted(ssid, psk, ip);
+    emit p2pStarted(ssid, psk, ip);
 }
-void HotspotBridge::handleHotspotFailed(const QString &reason) {
-    emit hotspotFailed(reason);
+void P2pBridge::handleP2pFailed(const QString &reason) {
+    emit p2pFailed(reason);
 }
-void HotspotBridge::handleHotspotStopped() {
-    emit hotspotStopped();
+void P2pBridge::handleP2pStopped() {
+    emit p2pStopped();
 }
 
 // These are declared `native` in Java — JNI glue
 extern "C" {
 
 JNIEXPORT void JNICALL
-Java_io_bari_qshare_HotspotManager_onHotspotStarted(
+Java_io_bari_qshare_P2pManager_onP2pStarted(
         JNIEnv *env, jobject /*thiz*/,
 jstring ssid, jstring psk, jstring ip)
 {
@@ -95,38 +100,38 @@ auto toQt = [&](jstring js) -> QString {
     env->ReleaseStringUTFChars(js, c);
     return s;
 };
-if (HotspotBridge::instance())
-HotspotBridge::instance()->handleHotspotStarted(
+if (P2pBridge::instance())
+P2pBridge::instance()->handleP2pStarted(
         toQt(ssid), toQt(psk), toQt(ip));
 }
 
 JNIEXPORT void JNICALL
-Java_io_bari_qshare_HotspotManager_onHotspotFailed(
+Java_io_bari_qshare_P2pManager_onP2pFailed(
         JNIEnv *env, jobject /*thiz*/, jstring reason)
 {
 const char *c = env->GetStringUTFChars(reason, nullptr);
 QString s = QString::fromUtf8(c);
 env->ReleaseStringUTFChars(reason, c);
-if (HotspotBridge::instance())
-HotspotBridge::instance()->handleHotspotFailed(s);
+if (P2pBridge::instance())
+P2pBridge::instance()->handleP2pFailed(s);
 }
 
 JNIEXPORT void JNICALL
-Java_io_bari_qshare_HotspotManager_onHotspotStopped(
+Java_io_bari_qshare_P2pManager_onP2pStopped(
         JNIEnv *env, jobject /*thiz*/)
 {
 Q_UNUSED(env);
-if (HotspotBridge::instance())
-HotspotBridge::instance()->handleHotspotStopped();
+if (P2pBridge::instance())
+P2pBridge::instance()->handleP2pStopped();
 }
 
 } // extern "C"
   //
-void HotspotBridge::handlePeerFound(const QString &name, const QString &addr) {
+void P2pBridge::handlePeerFound(const QString &name, const QString &addr) {
     emit peerFound(name, addr);
 }
 extern "C" JNIEXPORT void JNICALL
-Java_io_bari_qshare_HotspotManager_onPeerFound(
+Java_io_bari_qshare_P2pManager_onPeerFound(
     JNIEnv *env, jobject, jstring name, jstring addr)
 {
     auto toQt = [&](jstring js) {
@@ -135,11 +140,11 @@ Java_io_bari_qshare_HotspotManager_onPeerFound(
         env->ReleaseStringUTFChars(js, c);
         return s;
     };
-    if (HotspotBridge::instance())
-        HotspotBridge::instance()->handlePeerFound(toQt(name), toQt(addr));
+    if (P2pBridge::instance())
+        P2pBridge::instance()->handlePeerFound(toQt(name), toQt(addr));
 }
 
-void HotspotBridge::connectToPeer(const QString &deviceAddress)
+void P2pBridge::connectToPeer(const QString &deviceAddress)
 {
 #ifdef Q_OS_ANDROID
     m_javaObj.callMethod<void>(
@@ -148,15 +153,15 @@ void HotspotBridge::connectToPeer(const QString &deviceAddress)
         QJniObject::fromString(deviceAddress).object<jstring>()
     );
 #else
-    emit hotspotFailed("Not on Android");
+    emit p2pFailed("Not on Android");
 #endif
 }
 
-void HotspotBridge::discoverAndConnect()
+void P2pBridge::discoverAndConnect()
 {
 #ifdef Q_OS_ANDROID
     m_javaObj.callMethod<void>("discoverAndConnect");
 #else
-    emit hotspotFailed("Not on Android");
+    emit p2pFailed("Not on Android");
 #endif
 }
