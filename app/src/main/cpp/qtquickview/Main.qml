@@ -9,6 +9,7 @@ Rectangle {
     visible: true
     width: 400
     height: 800
+    color: "#121212"
 
     Material.theme: Material.Dark
     Material.accent: Material.Blue
@@ -18,18 +19,21 @@ Rectangle {
     readonly property real fontMid:   u * 1.4
     readonly property real fontTitle: u * 2.2
 
-    // ── Navigation stack ─────────────────────────────────────────────────────
     StackView {
         id: stack
         anchors.fill: parent
         initialItem: scanPage
     }
 
-    // ── Page 1: Scan ─────────────────────────────────────────────────────────
+    // ── Page 1: Scan ──────────────────────────────────────────────────────────
     Component {
         id: scanPage
+
         Page {
+            id: scanPageRoot
             background: Rectangle { color: "#121212" }
+
+            property bool isConnected: false
 
             header: ToolBar {
                 background: Rectangle { color: "#1E1E1E" }
@@ -42,8 +46,80 @@ Rectangle {
                 }
             }
 
+            // ── Log panel anchored to bottom ──────────────────────────────
             ColumnLayout {
-                anchors.fill: parent
+                id: logPanel
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                spacing: 0
+
+                property bool expanded: false
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: u * 3
+                    color: "#1A1A1A"
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: u
+                        anchors.rightMargin: u
+                        Label {
+                            text: "Log"
+                            color: "#666666"
+                            font.pixelSize: fontSmall
+                            Layout.fillWidth: true
+                        }
+                        Label {
+                            text: logPanel.expanded ? "▼" : "▲"
+                            color: "#666666"
+                            font.pixelSize: fontSmall
+                        }
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: logPanel.expanded = !logPanel.expanded
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: logPanel.expanded ? u * 14 : 0
+                    clip: true
+                    color: "#111111"
+                    Behavior on height { NumberAnimation { duration: 200 } }
+
+                    ScrollView {
+                        anchors.fill: parent
+                        anchors.margins: u * 0.8
+                        clip: true
+                        Column {
+                            spacing: u * 0.3
+                            width: parent.width
+                            Repeater {
+                                model: logModel
+                                Label {
+                                    required property string msg
+                                    required property string msgColor
+                                    text: msg
+                                    color: msgColor
+                                    font.pixelSize: fontSmall
+                                    wrapMode: Text.Wrap
+                                    width: parent.width
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Main content above log ────────────────────────────────────
+            ColumnLayout {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.bottom: logPanel.top
                 anchors.margins: u * 1.5
                 spacing: u * 1.2
 
@@ -51,11 +127,12 @@ Rectangle {
                 Rectangle {
                     id: statusPill
                     Layout.fillWidth: true
-                    height: u * 3.5
+                    Layout.preferredHeight: u * 3.5
                     radius: height / 2
                     color: "#1A1A1A"
                     border.color: "#333333"
                     border.width: 1
+                    Behavior on color { ColorAnimation { duration: 300 } }
 
                     Label {
                         id: statusLabel
@@ -67,19 +144,19 @@ Rectangle {
                     }
                 }
 
-                property bool isConnectedState: false
-
-                // Action buttons
-                StackLayout {
+                // Buttons — swap between discover and connected actions
+                Loader {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: u * 5.5
-                    currentIndex: isConnectedState ? 1 : 0
+                    Layout.preferredHeight: u * 5
+                    sourceComponent: scanPageRoot.isConnected
+                                     ? connectedButtons : discoverButton
+                }
 
+                Component {
+                    id: discoverButton
                     Button {
                         text: "Start Discovering"
-                        Layout.fillWidth: true
                         font.pixelSize: fontMid
-                        implicitHeight: u * 5
                         onClicked: {
                             deviceModel.clear()
                             Bluetooth.startPeripheral()
@@ -88,159 +165,100 @@ Rectangle {
                             statusPill.color = "#1A3A5C"
                         }
                     }
+                }
 
+                Component {
+                    id: connectedButtons
                     RowLayout {
-                        Layout.fillWidth: true
-                        spacing: u
-
+                        spacing: u * 0.8
                         Button {
-                            text: "Send File"
+                            text: "File"
                             Layout.fillWidth: true
-                            font.pixelSize: fontMid
-                            implicitHeight: u * 5
+                            font.pixelSize: fontSmall
                             onClicked: fileDialog.open()
                         }
                         Button {
                             text: "Chat"
                             Layout.fillWidth: true
-                            font.pixelSize: fontMid
-                            implicitHeight: u * 5
+                            font.pixelSize: fontSmall
                             onClicked: stack.push(chatPage)
                         }
                         Button {
-                            text: "Disconnect"
-                            Layout.fillWidth: true
-                            font.pixelSize: fontMid
-                            implicitHeight: u * 5
-                            onClicked: Transport.disconnectAll()
+                            text: "✕"
+                            Layout.preferredWidth: u * 5
+                            font.pixelSize: fontSmall
+                            onClicked: {
+                                Transport.disconnectAll()
+                                Bluetooth.disconnectBle()
+                                scanPageRoot.isConnected = false
+                                statusLabel.text = "Idle"
+                                statusPill.color = "#1A1A1A"
+                            }
                         }
                     }
                 }
 
                 // Device list
-                ListView {
-                    id: deviceList
+                Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    spacing: u * 0.6
-                    clip: true
-                    model: deviceModel
+                    color: "transparent"
 
-                    // Show a hint if empty
                     Label {
                         anchors.centerIn: parent
-                        text: "No devices discovered yet"
+                        text: "No devices found yet"
                         color: "#444444"
                         font.pixelSize: fontSmall
                         visible: deviceModel.count === 0
                     }
 
-                    delegate: Rectangle {
-                        width: ListView.view.width
-                        height: u * 7
-                        radius: u
-                        color: "#1E1E1E"
-                        border.color: "#333333"
-
-                        property bool tapped: false
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.margins: u
-                            spacing: u
-
-                            Column {
-                                Layout.fillWidth: true
-                                spacing: u * 0.3
-                                Text {
-                                    text: name
-                                    color: "white"
-                                    font.pixelSize: fontMid
-                                }
-                                Text {
-                                    text: address
-                                    color: "#888888"
-                                    font.pixelSize: fontSmall
-                                }
-                            }
-
-                            Button {
-                                text: "Connect"
-                                font.pixelSize: fontSmall
-                                implicitHeight: u * 4
-                                enabled: !parent.parent.tapped
-                                opacity: enabled ? 1.0 : 0.4
-                                onClicked: {
-                                    parent.parent.tapped = true
-                                    Bluetooth.connectToDevice(address)
-                                    statusLabel.text = "Connecting…"
-                                    statusPill.color = "#2A2A1A"
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Collapsible log
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 0
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        height: u * 3
-                        color: "#1A1A1A"
-                        radius: u * 0.5
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.margins: u * 0.5
-
-                            Label {
-                                text: "Log"
-                                color: "#888888"
-                                font.pixelSize: fontSmall
-                                Layout.fillWidth: true
-                            }
-                            Label {
-                                text: logExpanded ? "▼" : "▲"
-                                color: "#888888"
-                                font.pixelSize: fontSmall
-                            }
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: logExpanded = !logExpanded
-                        }
-                    }
-
-                    property bool logExpanded: false
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        height: logExpanded ? u * 14 : 0
+                    ListView {
+                        anchors.fill: parent
+                        spacing: u * 0.6
                         clip: true
-                        color: "#111111"
-                        Behavior on height { NumberAnimation { duration: 200 } }
+                        model: deviceModel
 
-                        ScrollView {
-                            anchors.fill: parent
-                            anchors.margins: u * 0.8
-                            clip: true
+                        delegate: Rectangle {
+                            width: ListView.view.width
+                            height: u * 7
+                            radius: u
+                            color: "#1E1E1E"
+                            border.color: "#333333"
+                            property bool tapped: false
 
-                            Column {
-                                spacing: u * 0.3
-                                width: parent.width
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.margins: u
+                                spacing: u
 
-                                Repeater {
-                                    model: logModel
-                                    Label {
-                                        text: model.msg !== undefined ? model.msg : msg
-                                        color: model.msgColor !== undefined ? model.msgColor : msgColor
-                                        font.pixelSize: fontSmall
-                                        wrapMode: Text.Wrap
+                                Column {
+                                    Layout.fillWidth: true
+                                    spacing: u * 0.3
+                                    Text {
+                                        text: name
+                                        color: "white"
+                                        font.pixelSize: fontMid
+                                        elide: Text.ElideRight
                                         width: parent.width
+                                    }
+                                    Text {
+                                        text: address
+                                        color: "#888888"
+                                        font.pixelSize: fontSmall
+                                    }
+                                }
+
+                                Button {
+                                    text: tapped ? "…" : "Connect"
+                                    font.pixelSize: fontSmall
+                                    Layout.preferredHeight: u * 4
+                                    enabled: !tapped
+                                    opacity: enabled ? 1.0 : 0.5
+                                    onClicked: {
+                                        tapped = true
+                                        Bluetooth.connectToDevice(address)
+                                        statusLabel.text = "Connecting…"
+                                        statusPill.color = "#2A2A1A"
                                     }
                                 }
                             }
@@ -256,12 +274,9 @@ Rectangle {
                 id: fileDialog
                 title: "Choose a file to send"
                 onAccepted: {
-                    var path = selectedFile.toString()
-                    if (path.startsWith("file://")) {
-                        path = path.substring(7)
-                    }
+                    var path = selectedFile.toString().replace("file://", "")
                     Transport.sendFile(path)
-                    appendLog("Sending file: " + path, "#FFFFBB")
+                    appendLog("Sending: " + path.split("/").pop(), "#FFFFBB")
                 }
             }
 
@@ -270,6 +285,7 @@ Rectangle {
                 if (logModel.count > 30) logModel.remove(0)
             }
 
+            // ── Bluetooth signals ─────────────────────────────────────────
             Connections {
                 target: Bluetooth
 
@@ -285,30 +301,15 @@ Rectangle {
                     } else if (message.indexOf("CLIENT") !== -1) {
                         statusLabel.text = "CLIENT — connecting"
                         statusPill.color = "#4A3A1A"
+                    } else if (message.indexOf("Polling") !== -1) {
+                        statusLabel.text = "Waiting for host…"
+                        statusPill.color = "#3A2A1A"
                     }
                     appendLog(message, "#BBBBBB")
                 }
-            }
 
-            Connections {
-                target: Transport
-
-                function onP2pStatus(status) {
-                    if (status === "Started") {
-                        statusLabel.text = "P2P up ✓"
-                        statusPill.color = "#1A5A1A"
-                    } else if (status === "Failed") {
-                        statusLabel.text = "P2P failed ✗"
-                        statusPill.color = "#8A1A1A"
-                    }
-                }
-
-                function onLogMessage(message) {
-                    appendLog(message, "#DDDDDD")
-                }
-
-                function onConnected() {
-                    isConnectedState = true
+                function onTcpConnected() {
+                    scanPageRoot.isConnected = true
                     statusLabel.text = "Connected ✓"
                     statusPill.color = "#0A6A0A"
                     appendLog("TCP up ✓", "#88FF88")
@@ -318,12 +319,62 @@ Rectangle {
                     appendLog("← " + text, "#AAFFAA")
                 }
             }
+
+            // ── Transport signals ─────────────────────────────────────────
+            Connections {
+                target: Transport
+
+                function onLogMessage(message) {
+                    if (message.indexOf("P2P group up") !== -1
+                            || message.indexOf("TCP server listening") !== -1) {
+                        statusLabel.text = "P2P up ✓"
+                        statusPill.color = "#1A5A1A"
+                    }
+                    appendLog(message, "#DDDDDD")
+                }
+
+                function onP2pStatus(status) {
+                    if (status === "Failed") {
+                        statusLabel.text = "P2P failed ✗"
+                        statusPill.color = "#8A1A1A"
+                        appendLog("P2P failed", "#FF8888")
+                    }
+                }
+
+                function onConnected() {
+                    scanPageRoot.isConnected = true
+                    statusLabel.text = "Connected ✓"
+                    statusPill.color = "#0A6A0A"
+                    appendLog("TCP up ✓", "#88FF88")
+                }
+
+                function onDisconnected() {
+                    scanPageRoot.isConnected = false
+                    statusLabel.text = "Idle"
+                    statusPill.color = "#1A1A1A"
+                    appendLog("Disconnected", "#FF8888")
+                    if (stack.depth > 1) stack.pop()
+                }
+
+                function onTextReceived(text) {
+                    appendLog("← " + text, "#AAFFAA")
+                }
+
+                function onFileCompleted(path) {
+                    appendLog("📁 Saved: " + path.split("/").pop(), "#88CCFF")
+                }
+
+                function onTransferProgress(sent, total) {
+                    // no progress bar on scan page — handled in chat page
+                }
+            }
         }
     }
 
-    // ── Page 2: Connected / Chat ──────────────────────────────────────────────
+    // ── Page 2: Chat ──────────────────────────────────────────────────────────
     Component {
         id: chatPage
+
         Page {
             background: Rectangle { color: "#121212" }
 
@@ -336,19 +387,15 @@ Rectangle {
                     ToolButton {
                         text: "←"
                         font.pixelSize: fontMid
-                        onClicked: {
-                            Transport.disconnectAll()
-                            if (stack.depth > 1) stack.pop()
-                        }
+                        onClicked: stack.pop()
                     }
                     Label {
-                        text: "Connected"
+                        text: "Chat"
                         font.pixelSize: fontMid
                         font.bold: true
                         color: "white"
                         Layout.fillWidth: true
                     }
-                    // Connection indicator
                     Rectangle {
                         width: u * 1.2
                         height: u * 1.2
@@ -363,45 +410,43 @@ Rectangle {
                 anchors.margins: u * 1.5
                 spacing: u
 
-                // Message history
                 ListView {
                     id: messageList
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
                     model: messageModel
-                    spacing: u * 0.5
+                    spacing: u * 0.8
+                    onCountChanged: Qt.callLater(positionViewAtEnd)
 
-                    // Auto-scroll to bottom
-                    onCountChanged: positionViewAtEnd()
-
-                    delegate: Row {
+                    delegate: Item {
                         width: ListView.view.width
-                        layoutDirection: fromMe ? Qt.RightToLeft : Qt.LeftToRight
-                        spacing: u
+                        height: bubble.height + u * 0.5
 
                         Rectangle {
-                            width: Math.min(msgText.implicitWidth + u * 2,
-                                           parent.width * 0.75)
-                            height: msgText.implicitHeight + u * 1.5
-                            radius: u
+                            id: bubble
+                            width: Math.min(msgText.implicitWidth + u * 2.5,
+                                           parent.width * 0.78)
+                            height: msgText.implicitHeight + u * 1.8
+                            radius: u * 0.8
                             color: fromMe ? "#1A4A8A" : "#2A2A2A"
+                            anchors.right: fromMe ? parent.right : undefined
+                            anchors.left:  fromMe ? undefined   : parent.left
 
                             Text {
                                 id: msgText
                                 anchors.centerIn: parent
-                                anchors.margins: u
                                 text: content
                                 color: "white"
                                 font.pixelSize: fontMid
                                 wrapMode: Text.Wrap
-                                width: parent.width - u * 2
+                                width: Math.min(implicitWidth,
+                                               parent.width - u * 2.5)
                             }
                         }
                     }
                 }
 
-                // Progress bar for file transfers
                 ProgressBar {
                     id: progressBar
                     Layout.fillWidth: true
@@ -410,7 +455,6 @@ Rectangle {
                     from: 0; to: 1
                 }
 
-                // Input row
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: u
@@ -441,7 +485,7 @@ Rectangle {
 
             function sendMessage() {
                 var text = messageInput.text.trim()
-                if (text.length === 0) return
+                if (!text) return
                 Transport.sendText(text)
                 messageModel.append({ "content": text, "fromMe": true })
                 messageInput.text = ""
@@ -461,16 +505,20 @@ Rectangle {
                 function onFileCompleted(path) {
                     progressBar.value = 0
                     messageModel.append({
-                        "content": "📁 File saved: " + path,
+                        "content": "📁 " + path.split("/").pop(),
                         "fromMe": false
                     })
                 }
-                
+
                 function onDisconnected() {
-                    isConnectedState = false
-                    statusLabel.text = "Idle"
-                    statusPill.color = "#333333"
                     if (stack.depth > 1) stack.pop()
+                }
+            }
+
+            Connections {
+                target: Bluetooth
+                function onTextReceived(text) {
+                    messageModel.append({ "content": text, "fromMe": false })
                 }
             }
         }
