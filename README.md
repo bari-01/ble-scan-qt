@@ -4,7 +4,7 @@ Qshare is Qt Quick Share (QtQuick Share?). It uses BLE to scan files and WIfip2p
 
 ## Build (Android Studio)
 
-1. Install **Qt** (Qt 6 recommended) with Android support.
+1. Install Qt6 with Android.
 2. Open the project in Android Studio.
 3. Build and run the app.
 
