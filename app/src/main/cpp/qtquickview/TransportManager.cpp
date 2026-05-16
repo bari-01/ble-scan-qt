@@ -7,6 +7,8 @@
 #include <QDataStream>
 #include <QHostAddress>
 #include <QCoreApplication>
+#include <QDir>
+#include <QUrl>
 
 TransportManager::TransportManager(QObject *parent) : QObject(parent) {
     m_p2pBridge = new P2pBridge(this);
@@ -19,9 +21,7 @@ TransportManager::TransportManager(QObject *parent) : QObject(parent) {
 
 void TransportManager::onP2pNegotiated(bool isHost, quint16 port) {
     m_negotiatedPort = port;
-    QString msg = QString("P2P Negotiated. isHost: %1, port: %2").arg(isHost).arg(port);
-    qDebug() << "TransportManager:" << msg;
-    emit logMessage(msg);
+    emit logMessage(QString("P2P Negotiated. isHost: %1, port: %2").arg(isHost).arg(port));
     emit p2pStatus("Negotiated");
 
     if (isHost) {
@@ -34,7 +34,6 @@ void TransportManager::onP2pNegotiated(bool isHost, quint16 port) {
 }
 
 void TransportManager::onP2pStarted(QString ssid, QString psk, QString ip) {
-    qDebug() << "TransportManager: P2P group up:" << ssid << "IP:" << ip;
     emit logMessage("P2P group up: " + ssid + " IP: " + ip);
     emit p2pStatus("Started");
     
@@ -50,7 +49,6 @@ void TransportManager::onP2pStarted(QString ssid, QString psk, QString ip) {
 }
 
 void TransportManager::onP2pFailed(QString reason) {
-    qDebug() << "TransportManager: P2P failed:" << reason;
     emit logMessage("P2P failed: " + reason);
     emit p2pStatus("Failed");
 }
@@ -72,11 +70,9 @@ void TransportManager::startServer(quint16 port) {
             this, &TransportManager::onNewConnection);
 
     if (!m_server->listen(QHostAddress::Any, port)) {
-        qDebug() << "TransportManager: TCP listen failed:" << m_server->errorString();
         emit logMessage("TCP listen failed: " + m_server->errorString());
         return;
     }
-    qDebug() << "TransportManager: TCP server listening on :" << port;
     emit logMessage("TCP server listening on :" + QString::number(port));
 }
 
@@ -92,7 +88,6 @@ void TransportManager::onNewConnection() {
     connect(m_socket, &QTcpSocket::disconnected,
             this, &TransportManager::onSocketDisconnected);
 
-    qDebug() << "TransportManager: Peer connected from" << m_socket->peerAddress().toString();
     emit logMessage("Peer connected from "
                     + m_socket->peerAddress().toString());
     emit connected();
@@ -103,7 +98,7 @@ void TransportManager::onNewConnection() {
 void TransportManager::connectToHost(const QString &ip, quint16 port) {
     m_socket = new QTcpSocket(this);
     connect(m_socket, &QTcpSocket::connected, this, [=]() {
-        qDebug() << "TransportManager: TCP connected to" << ip;
+        qDebug() << "[QShare] TCP connected to" << ip;
         emit logMessage("TCP connected to " + ip);
         emit connected();
     });
@@ -112,11 +107,11 @@ void TransportManager::connectToHost(const QString &ip, quint16 port) {
     connect(m_socket, &QTcpSocket::disconnected,
             this, &TransportManager::onSocketDisconnected);
     connect(m_socket, &QTcpSocket::errorOccurred, this, [=]() {
-        qDebug() << "TransportManager: TCP error:" << m_socket->errorString();
+        qDebug() << "[QShare] TCP error:" << m_socket->errorString();
         emit logMessage("TCP error: " + m_socket->errorString());
     });
 
-    qDebug() << "TransportManager: Connecting TCP to" << ip << ":" << port;
+    qDebug() << "[QShare] Connecting TCP to" << ip << ":" << port;
     emit logMessage("Connecting TCP to " + ip + ":" + QString::number(port));
     m_socket->connectToHost(ip, port);
 }
@@ -148,20 +143,26 @@ void TransportManager::sendVideoFrame(const QByteArray &frameData) {
 }
 
 void TransportManager::sendFile(const QString &filePath) {
+    qDebug() << "[QShare] Attempting to send file:" << filePath;
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) {
-        qDebug() << "TransportManager: Cannot open file:" << filePath;
-        emit logMessage("Cannot open file: " + filePath);
+        qDebug() << "[QShare] Cannot open file:" << filePath << "Error:" << file.errorString();
+        emit logMessage("Cannot open file: " + filePath + " error: " + file.errorString());
         return;
     }
 
     QFileInfo info(filePath);
+    QString name = info.fileName();
+    if (name.contains("%")) {
+        // Just in case it's a raw content URI, clean it up a bit or fallback
+        name = QUrl::fromPercentEncoding(name.toUtf8());
+    }
     m_outgoingFileSize = info.size();
     m_outgoingSent     = 0;
 
     // Send header
     QJsonObject hdr;
-    hdr["name"] = info.fileName();
+    hdr["name"] = name;
     hdr["size"] = info.size();
     hdr["mime"] = "application/octet-stream"; // extend later
     writeFrame(TYPE_FILE_HDR, QJsonDocument(hdr).toJson(QJsonDocument::Compact));
@@ -178,8 +179,7 @@ void TransportManager::sendFile(const QString &filePath) {
     }
 
     writeFrame(TYPE_FILE_END, QByteArray());
-    qDebug() << "TransportManager: File sent:" << info.fileName();
-    emit logMessage("File sent: " + info.fileName());
+    emit logMessage("File sent: " + name);
 }
 
 // ── Receive ───────────────────────────────────────────────────────────────────
@@ -231,26 +231,30 @@ void TransportManager::handleIncoming(const QByteArray &payload, quint8 type) {
             m_incomingFileReceived = 0;
 
             // Open output file in Downloads
-            QString dir  = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+            QString dir  = QStandardPaths::writableLocation(
+                    QStandardPaths::DownloadLocation);
             QString path = dir + "/" + m_incomingFileName;
+            qDebug() << "[QShare] Attempting to save incoming file to:" << path;
             if (m_incomingFile) { m_incomingFile->close(); delete m_incomingFile; }
             m_incomingFile = new QFile(path, this);
             
             if (!m_incomingFile->open(QIODevice::WriteOnly)) {
-                emit logMessage("Cannot write to Downloads. Trying AppData...");
-                dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+                qDebug() << "[QShare] Failed to write to Downloads, trying AppLocalDataLocation. Error:" << m_incomingFile->errorString();
+                dir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/Download";
+                QDir().mkpath(dir);
                 path = dir + "/" + m_incomingFileName;
                 m_incomingFile->setFileName(path);
                 if (!m_incomingFile->open(QIODevice::WriteOnly)) {
-                    emit logMessage("Failed to open incoming file: " + path);
+                    qDebug() << "[QShare] Failed to write to AppLocalDataLocation. Error:" << m_incomingFile->errorString();
+                    emit logMessage("Failed to write to Downloads and AppLocalData. " + m_incomingFile->errorString());
                     delete m_incomingFile;
                     m_incomingFile = nullptr;
                     return;
                 }
             }
 
+            qDebug() << "[QShare] File successfully opened for writing:" << path;
             emit fileStarted(m_incomingFileName, m_incomingFileSize, "");
-            qDebug() << "TransportManager: Receiving:" << m_incomingFileName << "(" << m_incomingFileSize << "bytes)";
             emit logMessage("Receiving: " + m_incomingFileName
                             + " (" + QString::number(m_incomingFileSize) + " bytes)");
             break;
@@ -272,7 +276,6 @@ void TransportManager::handleIncoming(const QByteArray &payload, quint8 type) {
                 delete m_incomingFile;
                 m_incomingFile = nullptr;
                 emit fileCompleted(path);
-                qDebug() << "TransportManager: File saved:" << path;
                 emit logMessage("File saved: " + path);
             }
             break;
@@ -282,7 +285,6 @@ void TransportManager::handleIncoming(const QByteArray &payload, quint8 type) {
             break;
 
         default:
-            qDebug() << "TransportManager: Unknown frame type:" << type;
             emit logMessage("Unknown frame type: " + QString::number(type));
             break;
     }

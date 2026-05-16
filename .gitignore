@@ -4,6 +4,7 @@ gen/
 out/
 build/
 .gradle/
+app/src/main/cpp/qtquickview/build-linux/
 
 # Android Studio / IntelliJ
 .idea/
@@ -32,3 +33,4 @@ local.properties
 # OS specific
 .DS_Store
 Thumbs.db
+app/release/baselineProfiles/0/app-release.dm

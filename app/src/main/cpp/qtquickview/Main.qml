@@ -85,30 +85,29 @@ Rectangle {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    height: logPanel.expanded ? u * 14 : 0
+                    Layout.preferredHeight: logPanel.expanded ? u * 14 : 0
                     clip: true
                     color: "#111111"
-                    Behavior on height { NumberAnimation { duration: 200 } }
+                    Behavior on Layout.preferredHeight { NumberAnimation { duration: 200 } }
 
-                    ScrollView {
+                    ListView {
+                        id: logListView
                         anchors.fill: parent
                         anchors.margins: u * 0.8
                         clip: true
-                        Column {
-                            spacing: u * 0.3
-                            width: parent.width
-                            Repeater {
-                                model: logModel
-                                Label {
-                                    required property string msg
-                                    required property string msgColor
-                                    text: msg
-                                    color: msgColor
-                                    font.pixelSize: fontSmall
-                                    wrapMode: Text.Wrap
-                                    width: parent.width
-                                }
-                            }
+                        model: logModel
+                        spacing: u * 0.3
+                        
+                        onCountChanged: Qt.callLater(positionViewAtEnd)
+
+                        delegate: Label {
+                            required property string msg
+                            required property string msgColor
+                            text: msg
+                            color: msgColor
+                            font.pixelSize: fontSmall
+                            wrapMode: Text.Wrap
+                            width: ListView.view.width
                         }
                     }
                 }
@@ -282,7 +281,7 @@ Rectangle {
 
             function appendLog(msg, color) {
                 logModel.append({ "msg": msg, "msgColor": color })
-                if (logModel.count > 30) logModel.remove(0)
+                if (logModel.count > 100) logModel.remove(0)
             }
 
             // ── Bluetooth signals ─────────────────────────────────────────

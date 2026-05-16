@@ -18,8 +18,10 @@ import org.qtproject.qt.android.QtQuickView
 import org.qtproject.qt.android.QtQuickViewContent
 
 class MainActivity : AppCompatActivity(), QtQmlStatusChangeListener {
-    private val TAG = "QshareMainActivity"
-    private val PERM_REQUEST_CODE = 1001
+    companion object {
+        private const val TAG = "QshareMainActivity"
+        private const val PERM_REQUEST_CODE = 1001
+    }
     private lateinit var binding: ActivityMainBinding
     private val qmlContent: Main = Main()
 
@@ -30,7 +32,7 @@ class MainActivity : AppCompatActivity(), QtQmlStatusChangeListener {
 
         val qtQuickView = QtQuickView(this)
         val params = FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
         )
         binding.qmlFrame.addView(qtQuickView, params)
 

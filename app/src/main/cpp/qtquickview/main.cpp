@@ -1,6 +1,7 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQuickView>
 
 #include <QPermission>
 #include <QBluetoothPermission>
@@ -34,6 +35,14 @@ int main(int argc, char *argv[])
             "Transport",
             &transportManager
     );
+
+#ifndef Q_OS_ANDROID
+    QQuickView view;
+    view.setResizeMode(QQuickView::SizeRootObjectToView);
+    view.setSource(QUrl("qrc:/qt/qml/qmlModule/Main.qml"));
+    view.resize(400, 800);
+    view.show();
+#endif
 
     return app.exec();
 }

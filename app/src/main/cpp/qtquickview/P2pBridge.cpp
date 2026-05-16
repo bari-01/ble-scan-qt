@@ -34,6 +34,7 @@ void P2pBridge::startP2pHost() {
 #ifdef Q_OS_ANDROID
     m_javaObj.callMethod<void>("startP2pHost");
 #elif defined(Q_OS_LINUX)
+    system("pkexec wpa_cli p2p_group_add");
     system("wpa_cli p2p_group_add");
     emit p2pStarted("DIRECT-linux", "password", "192.168.4.1");
 #else
@@ -86,6 +87,7 @@ void P2pBridge::handleP2pStopped() {
     emit p2pStopped();
 }
 
+#ifdef Q_OS_ANDROID
 // These are declared `native` in Java — JNI glue
 extern "C" {
 
@@ -143,6 +145,7 @@ Java_io_bari_qshare_P2pManager_onPeerFound(
     if (P2pBridge::instance())
         P2pBridge::instance()->handlePeerFound(toQt(name), toQt(addr));
 }
+#endif
 
 void P2pBridge::connectToPeer(const QString &deviceAddress)
 {
@@ -152,6 +155,8 @@ void P2pBridge::connectToPeer(const QString &deviceAddress)
         "(Ljava/lang/String;)V",
         QJniObject::fromString(deviceAddress).object<jstring>()
     );
+#elif defined(Q_OS_LINUX)
+    system(QString("pkexec wpa_cli p2p_connect %1 pbc").arg(deviceAddress).toStdString().c_str());
 #else
     emit p2pFailed("Not on Android");
 #endif
@@ -161,6 +166,10 @@ void P2pBridge::discoverAndConnect()
 {
 #ifdef Q_OS_ANDROID
     m_javaObj.callMethod<void>("discoverAndConnect");
+#elif defined(Q_OS_LINUX)
+    system("pkexec wpa_cli p2p_find");
+    system("pkexec wpa_cli p2p_connect 00:00:00:00:00:00 pbc");
+    emit p2pStarted("CLIENT_CONNECTED", "", "192.168.49.1");
 #else
     emit p2pFailed("Not on Android");
 #endif

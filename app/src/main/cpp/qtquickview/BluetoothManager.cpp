@@ -91,49 +91,53 @@ void BluetoothManager::connectToDevice(const QString &address)
                     [=](QLowEnergyService::ServiceState state) {
                     if (state != QLowEnergyService::RemoteServiceDiscovered) return;
 
+                    connect(svc, &QLowEnergyService::characteristicChanged, this,
+                            [=](const QLowEnergyCharacteristic &ch, const QByteArray &val) {
+                                if (ch.uuid() != HOTSPOT_CHAR_UUID) return;
+                                if (val.isEmpty()) return;
+
+                                QStringList parts = QString::fromUtf8(val).split("::");
+                                if (parts[0] != "READY" || parts.size() < 2) return;
+
+                                quint16 port = parts[1].toUInt();
+                                emit logMessage("Host ready (notification)");
+
+                                emit p2pNegotiationComplete(m_isHost, port);
+                            });
+
+                    connect(svc, &QLowEnergyService::characteristicRead, this,
+                            [=](const QLowEnergyCharacteristic &ch, const QByteArray &val) {
+                                if (ch.uuid() != HOTSPOT_CHAR_UUID) return;
+                                if (val.isEmpty()) return;
+
+                                QStringList parts = QString::fromUtf8(val).split("::");
+                                if (parts[0] != "READY" || parts.size() < 2) return;
+
+                                // Stop polling!
+                                auto timers = this->findChildren<QTimer*>();
+                                for (auto t : timers) {
+                                    if (t->interval() == 500) {
+                                        t->stop();
+                                        t->deleteLater();
+                                    }
+                                }
+
+                                quint16 port = parts[1].toUInt();
+                                emit logMessage("Host ready");
+
+                                emit p2pNegotiationComplete(m_isHost, port);
+                            });
+
+                    // ── Polling fallback (avoids Android CCCD bugs) ───────────────
+                    auto hotspotChar = svc->characteristic(HOTSPOT_CHAR_UUID);
                     auto *pollTimer = new QTimer(this);
-pollTimer->setInterval(500);
-connect(pollTimer, &QTimer::timeout, this, [=]() {
-    auto hotspotChar = svc->characteristic(HOTSPOT_CHAR_UUID);
-    svc->readCharacteristic(hotspotChar);
-});
-
-connect(svc, &QLowEnergyService::characteristicRead, this,
-        [=](const QLowEnergyCharacteristic &ch, const QByteArray &val) {
-            if (ch.uuid() != HOTSPOT_CHAR_UUID) return;
-            if (val.isEmpty()) return;
-
-            QStringList parts = QString::fromUtf8(val).split("::");
-            if (parts[0] != "READY" || parts.size() < 2) return;
-
-            pollTimer->stop();
-            pollTimer->deleteLater();
-
-            quint16 port = parts[1].toUInt();
-            emit logMessage("Host ready — negotiation complete");
-
-            emit p2pNegotiationComplete(m_isHost, port);
-        });
-
-// Remove the CCCD subscription entirely — no longer needed
-pollTimer->start();
-emit logMessage("Polling host for READY signal...");
-            // ── Enable notifications on HOTSPOT_CHAR ──────────────────────
-            //auto hotspotChar = svc->characteristic(HOTSPOT_CHAR_UUID);
-
-            //// Find the CCCD descriptor
-            //auto cccd = hotspotChar.descriptor(
-            //    QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration
-            //);
-            //if (cccd.isValid()) {
-            //    svc->writeDescriptor(cccd,
-            //        QByteArray::fromHex("0100")  // enable notifications
-            //    );
-            //    emit logMessage("Subscribed to HOTSPOT_CHAR notifications");
-            //} else {
-            //    emit logMessage("WARNING: No CCCD on HOTSPOT_CHAR — polling instead");
-            //}
-            // ─────────────────────────────────────────────────────────────
+                    pollTimer->setInterval(500);
+                    connect(pollTimer, &QTimer::timeout, this, [=]() {
+                        svc->readCharacteristic(hotspotChar);
+                    });
+                    pollTimer->start();
+                    emit logMessage("Polling host for READY signal...");
+                    // ─────────────────────────────────────────────────────────────
 
                     auto nonceChar = svc->characteristic(NONCE_CHAR_UUID);
                     QByteArray val = nonceChar.value();
@@ -141,6 +145,9 @@ emit logMessage("Polling host for READY signal...");
                             reinterpret_cast<const uchar*>(val.constData())
                             );
                     electHost(remoteNonce, svc);
+
+                    // Issue initial read
+                    svc->readCharacteristic(hotspotChar);
                     });
             });
 
@@ -203,7 +210,7 @@ void BluetoothManager::startPeripheral()
     //cccd.setReadConstraints(QBluetooth::AttAccessConstraint(0));   // open read
     //cccd.setWriteConstraints(QBluetooth::AttAccessConstraint(0));  // open write
     hotspotChar.addDescriptor(cccd);     // ← must be here
-    hotspotChar.setValue(QByteArray());
+    hotspotChar.setValue(QByteArray("WAIT"));
 
     QLowEnergyServiceData serviceData;
     serviceData.setType(QLowEnergyServiceData::ServiceTypePrimary);
