@@ -1,25 +1,22 @@
-# BLE Scan Qt
+# Qshare (Qt (quick) Share)
 
-A Qt-based application for scanning Bluetooth Low Energy (BLE) devices.
+Qshare is Qt Quick Share (QtQuick Share?). It uses BLE to scan files and WIfip2p for connections.
 
-## Build
+## Build (Android Studio)
 
-1. Ensure you have a recent Qt (Qt 6 recommended) and a C++ toolchain installed.
-2. Clone the repository.
-3. Open the project in Qt Creator **or** build from the command line:
-
-```bash
-qmake
-make
-```
-
-(If the project uses CMake instead of qmake, use `cmake -S . -B build && cmake --build build`.)
+1. Install **Qt** (Qt 6 recommended) with Android support.
+2. Open the project in Android Studio.
+3. Build and run the app.
 
 ## Run
 
-- From Qt Creator, run the target directly.
-- From the command line, run the built binary (e.g., in the build output directory).
+Grab the apk and run (as in process, not travel).
+
+## Dependencies
+
+- **Qt** (QtQuick)
+- Android
 
 ## License
 
-This project is licensed under the GNU AGPLv3. See the LICENSE file for details.
+This project is licensed under the **GNU AGPLv3**. See `LICENSE` for details.
